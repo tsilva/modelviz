@@ -199,6 +199,10 @@ button {
   padding: 14px;
 }
 
+.left-panel {
+  overflow: auto;
+}
+
 .center-panel {
   min-width: 0;
   min-height: calc(100vh - 92px);
@@ -340,6 +344,207 @@ button {
   border: 1px dashed #cbd5e1;
   border-radius: 8px;
   font-size: 12px;
+}
+
+.model-browser {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.hardware-note,
+.web-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.hardware-note svg {
+  color: #475569;
+  flex: 0 0 auto;
+}
+
+.web-search-form {
+  display: grid;
+  gap: 7px;
+}
+
+.web-search-form label {
+  display: grid;
+  gap: 5px;
+}
+
+.web-search-form label span {
+  color: #475569;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.web-search-form input {
+  min-width: 0;
+  height: 34px;
+  padding: 0 9px;
+  color: var(--text);
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  outline: 0;
+  font-size: 12px;
+}
+
+.secondary-action,
+.remote-model-actions button,
+.remote-model-actions a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 32px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.secondary-action {
+  color: #075985;
+  background: #e0f2fe;
+  border: 1px solid #bae6fd;
+}
+
+.secondary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.web-status {
+  padding: 8px 9px;
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.web-status.ready {
+  color: #047857;
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+}
+
+.web-status.error {
+  color: #be123c;
+  background: #fff1f2;
+  border-color: #fecdd3;
+}
+
+.web-results {
+  display: grid;
+  gap: 8px;
+}
+
+.remote-model-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.remote-model-main strong,
+.remote-model-main span,
+.remote-model-meta code,
+.remote-model-meta span,
+.remote-model-card p {
+  display: block;
+}
+
+.remote-model-main strong {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.remote-model-main span,
+.remote-model-meta span,
+.remote-model-card p {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.remote-model-meta code {
+  overflow: hidden;
+  color: #075985;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-model-card p {
+  margin: 0;
+  line-height: 16px;
+}
+
+.fit-pill {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  font-size: 11px;
+}
+
+.fit-pill span {
+  font-weight: 900;
+}
+
+.fit-pill em {
+  color: inherit;
+  font-style: normal;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+}
+
+.fit-pill.green,
+.fit-pill.emerald {
+  color: #047857;
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+}
+
+.fit-pill.amber {
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+}
+
+.fit-pill.red {
+  color: #be123c;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+}
+
+.remote-model-actions {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.remote-model-actions a {
+  color: #334155;
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  text-decoration: none;
+}
+
+.remote-model-actions button {
+  color: #fff;
+  background: var(--accent);
 }
 
 .canvas-toolbar {

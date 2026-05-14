@@ -105,6 +105,19 @@ class ProtoReader {
       return;
     }
 
+    if (wire === 3) {
+      while (!this.eof()) {
+        const nested = this.tag();
+        if (nested.wire === 4) return;
+        this.skip(nested.wire);
+      }
+      return;
+    }
+
+    if (wire === 4) {
+      return;
+    }
+
     throw new Error(`Unsupported protobuf wire type ${wire}`);
   }
 }

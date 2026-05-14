@@ -6,7 +6,7 @@
 
 ModelViz is a local React app for inspecting ONNX model structure. It parses model bytes in the browser, groups raw operators into semantic architecture blocks, and shows the raw graph beside a cleaner model-level view.
 
-Use it to open an ONNX file, compare raw nodes with inferred groups, and inspect tensors, metadata, traceability, confidence, and model-profile matches.
+Use it to open an ONNX file from disk or the web, compare raw nodes with inferred groups, and inspect tensors, metadata, traceability, confidence, and model-profile matches.
 
 ## Install
 
@@ -31,6 +31,7 @@ pnpm preview  # preview the production bundle locally
 
 - ModelViz starts with an empty state and prompts you to open an ONNX file.
 - Uploaded files are parsed in the browser with the local ONNX protobuf parser.
+- The web model browser searches Hugging Face ONNX model files and estimates browser parsing fit from file size, device memory, and CPU thread count before loading.
 - The dev server still exposes `/api/model/default` for local experiments.
 - Set `MODELVIZ_MODEL_PATH=/path/to/model.onnx` to choose the file served by that endpoint.
 - If `MODELVIZ_MODEL_PATH` is not set, the dev server looks for `~/Desktop/mnist_mlp_best_seed1.onnx`.

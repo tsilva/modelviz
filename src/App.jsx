@@ -1,10 +1,16 @@
 import React, { useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   Braces,
+  CheckCircle2,
   CircuitBoard,
   Database,
+  DownloadCloud,
+  ExternalLink,
   FileUp,
   GitBranch,
+  Globe2,
+  HardDrive,
   Layers3,
   Link2,
   Network,
@@ -16,6 +22,13 @@ import {
 import { classifyRawNode, createArchitectureGroups, createCleanEdges, summarizeCoverage } from "./lib/abstraction.js";
 import { createEmptyModelView, createModelViewFromOnnx } from "./lib/modelView.js";
 import { parseOnnxModel } from "./lib/onnxParser.js";
+import {
+  assessRemoteModelFit,
+  createRemoteModelFromUrl,
+  formatBytes,
+  getBrowserFitContext,
+  searchWebOnnxModels
+} from "./lib/webModelBrowser.js";
 
 const cleanLayout = {
   inputs: { x: 18, y: 22 },
@@ -52,11 +65,18 @@ function App() {
   const [selectedGroupId, setSelectedGroupId] = useState(null);
   const [selectedProfile, setSelectedProfile] = useState(null);
   const [loadStatus, setLoadStatus] = useState({ state: "idle", message: "Load an ONNX model file to begin" });
+  const [webQuery, setWebQuery] = useState("mnist onnx");
+  const [webResults, setWebResults] = useState([]);
+  const [webStatus, setWebStatus] = useState({ state: "idle", message: "Search public ONNX files" });
+  const [directUrl, setDirectUrl] = useState("");
+  const [directModel, setDirectModel] = useState(null);
   const inputRef = useRef(null);
+  const webSearchAbortRef = useRef(null);
+  const directAbortRef = useRef(null);
 
   const groups = useMemo(() => createArchitectureGroups(modelView.rawNodes, modelView.model), [modelView]);
   const cleanEdges = useMemo(() => createCleanEdges(groups), [groups]);
-  const hasModel = modelView.rawNodes.length > 0;
+  const hasModel = Boolean(modelView.model.fileName);
   const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? groups[0] ?? null;
   const selectedRawIds = new Set(selectedGroup?.rawNodeIds ?? []);
   const coverage = useMemo(() => summarizeCoverage(groups, modelView.rawNodes), [groups, modelView.rawNodes]);
@@ -70,6 +90,8 @@ function App() {
     const needle = query.toLowerCase();
     return modelView.rawNodes.filter((node) => `${node.name} ${node.opType} ${node.groupHint}`.toLowerCase().includes(needle));
   }, [modelView.rawNodes, query]);
+
+  const fitContext = useMemo(() => getBrowserFitContext(), []);
 
   const openFile = async (event) => {
     const [file] = event.target.files ?? [];
@@ -88,6 +110,71 @@ function App() {
       setLoadStatus({ state: "error", message: error.message });
     } finally {
       event.target.value = "";
+    }
+  };
+
+  const loadModelBuffer = async ({ fileName, sourcePath, buffer }) => {
+    const parsed = parseOnnxModel(buffer);
+    const nextView = createModelViewFromOnnx(fileName, parsed, sourcePath);
+    setModelView(nextView);
+    setSelectedGroupId(nextView.rawNodes[0]?.groupId ?? "inputs");
+    setSelectedProfile(nextView.modelProfiles[0]?.id ?? "generic");
+    setLoadStatus({ state: "ready", message: nextView.loadMessage });
+  };
+
+  const searchWebModels = async (event) => {
+    event?.preventDefault();
+    webSearchAbortRef.current?.abort();
+    const controller = new AbortController();
+    webSearchAbortRef.current = controller;
+    setWebStatus({ state: "loading", message: "Searching Hugging Face ONNX models" });
+
+    try {
+      const results = await searchWebOnnxModels(webQuery, controller.signal);
+      setWebResults(results);
+      setWebStatus({
+        state: "ready",
+        message: results.length ? `${results.length} ONNX files found` : "No ONNX files found"
+      });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setWebStatus({ state: "error", message: error.message });
+    }
+  };
+
+  const checkDirectUrl = async (event) => {
+    event?.preventDefault();
+    directAbortRef.current?.abort();
+    const controller = new AbortController();
+    directAbortRef.current = controller;
+    setDirectModel(null);
+    setWebStatus({ state: "loading", message: "Checking remote ONNX URL" });
+
+    try {
+      const remote = await createRemoteModelFromUrl(directUrl, controller.signal);
+      setDirectModel(remote);
+      setWebStatus({ state: "ready", message: "Remote URL assessed" });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setWebStatus({ state: "error", message: error.message });
+    }
+  };
+
+  const loadRemoteModel = async (remoteModel) => {
+    setLoadStatus({ state: "loading", message: `Downloading ${remoteModel.artifactPath}` });
+
+    try {
+      const response = await fetch(remoteModel.downloadUrl);
+      if (!response.ok) throw new Error(`Remote model download failed (${response.status})`);
+      const buffer = await response.arrayBuffer();
+      await loadModelBuffer({
+        fileName: remoteModel.artifactPath.split("/").pop() || remoteModel.name || "model.onnx",
+        sourcePath: remoteModel.downloadUrl,
+        buffer
+      });
+      setWebStatus({ state: "ready", message: `Loaded ${remoteModel.modelId}` });
+    } catch (error) {
+      setLoadStatus({ state: "error", message: error.message });
     }
   };
 
@@ -166,6 +253,19 @@ function App() {
           ) : (
             <div className="empty-list">Profiles appear after a model is parsed.</div>
           )}
+          <ModelBrowser
+            directModel={directModel}
+            directUrl={directUrl}
+            fitContext={fitContext}
+            onCheckDirectUrl={checkDirectUrl}
+            onDirectUrlChange={setDirectUrl}
+            onLoadRemoteModel={loadRemoteModel}
+            onSearch={searchWebModels}
+            results={webResults}
+            status={webStatus}
+            query={webQuery}
+            onQueryChange={setWebQuery}
+          />
         </aside>
 
         <section className={`center-panel ${hasModel ? "" : "empty"}`}>
@@ -300,6 +400,108 @@ function App() {
         </aside>
       </section>
     </main>
+  );
+}
+
+function ModelBrowser({
+  directModel,
+  directUrl,
+  fitContext,
+  onCheckDirectUrl,
+  onDirectUrlChange,
+  onLoadRemoteModel,
+  onSearch,
+  results,
+  status,
+  query,
+  onQueryChange
+}) {
+  return (
+    <section className="model-browser">
+      <div className="panel-title">
+        <span>Web Model Browser</span>
+        <Globe2 size={15} />
+      </div>
+
+      <div className="hardware-note">
+        <HardDrive size={15} />
+        <span>
+          {fitContext.deviceMemoryGb
+            ? `${fitContext.deviceMemoryGb} GB device memory · ${fitContext.hardwareConcurrency ?? "?"} threads`
+            : `Memory unavailable · ${fitContext.hardwareConcurrency ?? "?"} threads`}
+        </span>
+      </div>
+
+      <form className="web-search-form" onSubmit={onSearch}>
+        <label>
+          <span>Search Hugging Face</span>
+          <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="mnist, resnet, gpt2" />
+        </label>
+        <button type="submit" className="secondary-action" disabled={status.state === "loading"}>
+          <Search size={14} />
+          Search
+        </button>
+      </form>
+
+      <form className="web-search-form" onSubmit={onCheckDirectUrl}>
+        <label>
+          <span>Direct ONNX URL</span>
+          <input value={directUrl} onChange={(event) => onDirectUrlChange(event.target.value)} placeholder="https://.../model.onnx" />
+        </label>
+        <button type="submit" className="secondary-action" disabled={!directUrl.trim() || status.state === "loading"}>
+          <CheckCircle2 size={14} />
+          Check
+        </button>
+      </form>
+
+      <div className={`web-status ${status.state}`}>
+        {status.state === "error" ? <AlertTriangle size={14} /> : <Globe2 size={14} />}
+        <span>{status.message}</span>
+      </div>
+
+      {directModel && (
+        <RemoteModelCard model={directModel} fitContext={fitContext} onLoad={onLoadRemoteModel} />
+      )}
+
+      <div className="web-results">
+        {results.map((model) => (
+          <RemoteModelCard key={model.id} model={model} fitContext={fitContext} onLoad={onLoadRemoteModel} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RemoteModelCard({ model, fitContext, onLoad }) {
+  const fit = assessRemoteModelFit(model, fitContext);
+  const sizeLabel = formatBytes(model.sizeBytes ?? model.estimatedBytes);
+  const paramsLabel = model.parameterCountB ? `${model.parameterCountB < 1 ? `${Math.round(model.parameterCountB * 1000)}M` : `${model.parameterCountB}B`} params` : "params unknown";
+
+  return (
+    <article className="remote-model-card">
+      <div className="remote-model-main">
+        <strong>{model.name}</strong>
+        <span>{model.modelId}</span>
+      </div>
+      <div className="remote-model-meta">
+        <code>{model.artifactPath}</code>
+        <span>{sizeLabel} · {paramsLabel}</span>
+      </div>
+      <div className={`fit-pill ${fit.tone}`}>
+        <span>{fit.label}</span>
+        <em>{fit.score}% · {fit.workingSetLabel}</em>
+      </div>
+      <p>{fit.summary}</p>
+      <div className="remote-model-actions">
+        <a href={model.downloadUrl} target="_blank" rel="noreferrer" title="Open model file">
+          <ExternalLink size={14} />
+        </a>
+        <button type="button" onClick={() => onLoad(model)}>
+          <DownloadCloud size={14} />
+          {fit.tone === "red" ? "Load anyway" : "Load"}
+        </button>
+      </div>
+    </article>
   );
 }
 
