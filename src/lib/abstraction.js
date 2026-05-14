@@ -24,6 +24,9 @@ export function classifyRawNode(node) {
 }
 
 export function createArchitectureGroups(nodes, model) {
+  const transformerGroups = createTransformerGroups(nodes, model);
+  if (transformerGroups) return transformerGroups;
+
   const byHint = nodes.reduce((acc, node) => {
     const key = node.groupId ?? node.groupHint ?? "unknown";
     acc[key] = acc[key] ? [...acc[key], node] : [node];
@@ -73,6 +76,19 @@ export function createArchitectureGroups(nodes, model) {
 }
 
 export function createCleanEdges(groups) {
+  const byId = new Set(groups.map((group) => group.id));
+  if (byId.has("transformer_blocks")) {
+    return [
+      ["inputs", "embeddings"],
+      ["runtime_support", "embeddings"],
+      ["embeddings", "transformer_blocks"],
+      ["runtime_support", "transformer_blocks"],
+      ["transformer_blocks", "final_norm"],
+      ["final_norm", "lm_head"],
+      ["lm_head", "outputs"]
+    ].filter(([from, to]) => byId.has(from) && byId.has(to));
+  }
+
   if (groups?.length) {
     return groups.slice(0, -1).map((group, index) => [group.id, groups[index + 1].id]);
   }
@@ -121,4 +137,144 @@ function confidenceForKind(kind) {
   };
 
   return confidence[kind] ?? 70;
+}
+
+function createTransformerGroups(nodes, model) {
+  const blockIndexes = [...new Set(nodes.map(transformerBlockIndex).filter((index) => index !== null))].sort((a, b) => a - b);
+  const hasTransformerPath = nodes.some((node) => nodeMatches(node, /(?:^|\/)transformer(?:\/|\.|$)/));
+  const hasAttentionOps = nodes.filter((node) => node.opType === "Softmax" || nodeMatches(node, /\/attn\//)).length >= 2;
+
+  if (model.family !== "Attention model" && !blockIndexes.length && !hasTransformerPath && !hasAttentionOps) {
+    return null;
+  }
+
+  const buckets = {
+    inputs: [],
+    embeddings: [],
+    transformer_blocks: [],
+    final_norm: [],
+    lm_head: [],
+    outputs: [],
+    runtime_support: []
+  };
+  const assigned = new Map();
+
+  nodes.forEach((node) => {
+    const bucket = primaryTransformerBucket(node);
+    if (bucket) {
+      buckets[bucket].push(node);
+      assigned.set(node.id, bucket);
+    }
+  });
+
+  assignSupportNodes(nodes, buckets, assigned);
+
+  const blockRange = formatBlockRange(blockIndexes);
+  const rawBlockNodes = buckets.transformer_blocks;
+  const blockCount = blockIndexes.length || estimateBlockCount(rawBlockNodes);
+  const attentionOps = rawBlockNodes.filter((node) => nodeMatches(node, /\/attn\//) || node.opType === "Softmax").length;
+  const mlpOps = rawBlockNodes.filter((node) => nodeMatches(node, /\/mlp\//) || nodeMatches(node, /c_fc|c_proj|Gelu|Tanh/)).length;
+  const cacheOutputs = nodes.filter((node) => node.opType === "Output" && /^present\.\d+\.(key|value)$/.test(node.name)).length;
+
+  const groups = [
+    makeSemanticGroup("inputs", "Inputs", "input", buckets.inputs, { tensors: inputTensorNames(buckets.inputs) }, 100, "io.inputs"),
+    makeSemanticGroup("embeddings", "Token + Position Embeddings", "embedding", buckets.embeddings, { pattern: "token lookup + position lookup + attention mask", parameters: model.parameterCount }, 94, "transformer.embeddings"),
+    makeSemanticGroup("transformer_blocks", `${blockCount || "Repeated"} Transformer Blocks`, "attention", rawBlockNodes, { blocks: blockRange || String(blockCount || "?"), pattern: "LayerNorm + self-attention + MLP + residual", attentionOps, mlpOps, cacheOutputs }, 94, "transformer.decoder.blocks"),
+    makeSemanticGroup("final_norm", "Final LayerNorm", "norm", buckets.final_norm, { role: "normalize decoder hidden states" }, 90, "transformer.final_norm"),
+    makeSemanticGroup("lm_head", "LM Head", "head", buckets.lm_head, { projection: "hidden states -> vocabulary logits", tiedEmbedding: hasTiedEmbeddingHead(nodes) }, 92, "transformer.lm_head"),
+    makeSemanticGroup("outputs", "Logits + Cache Outputs", "output", buckets.outputs, { outputs: outputTensorSummary(buckets.outputs), cacheOutputs }, 100, "io.outputs")
+  ];
+
+  if (buckets.runtime_support.length) {
+    groups.splice(2, 0, makeSemanticGroup("runtime_support", "Shape + Mask Support", "support", buckets.runtime_support, { role: "dynamic sequence shape, constants, casts, and causal mask helpers" }, 82, "onnx.runtime_support"));
+  }
+
+  const usefulGroups = groups.filter((group) => group.rawNodeCount > 0);
+  return usefulGroups.length >= 3 ? usefulGroups : null;
+}
+
+function makeSemanticGroup(id, label, kind, raw, metadata, confidence, recognizer) {
+  return {
+    id,
+    label,
+    kind,
+    rawNodeIds: raw.map((node) => node.id),
+    rawNodeCount: raw.length,
+    inputs: [...new Set(raw.flatMap((node) => node.inputs ?? []))].slice(0, 4),
+    outputs: [...new Set(raw.flatMap((node) => node.outputs ?? []))].slice(-4),
+    metadata,
+    confidence,
+    recognizer
+  };
+}
+
+function primaryTransformerBucket(node) {
+  if (node.opType === "Input") return "inputs";
+  if (node.opType === "Output") return "outputs";
+  if (nodeMatches(node, /\/lm_head\//) || nodeMatches(node, /logits|weight_transposed/)) return "lm_head";
+  if (nodeMatches(node, /\/transformer\/ln_f\//)) return "final_norm";
+  if (transformerBlockIndex(node) !== null) return "transformer_blocks";
+  if (nodeMatches(node, /\/transformer\/(?:wte|wpe)\//) || nodeMatches(node, /(?:^|\/)transformer\/(?:Shape|Range|Add|Sub|Mul|Unsqueeze|Cast|Gather)(?:_|$|\/)/)) {
+    return "embeddings";
+  }
+  return null;
+}
+
+function assignSupportNodes(nodes, buckets, assigned) {
+  const consumerBuckets = new Map();
+  nodes.forEach((node) => {
+    const bucket = assigned.get(node.id);
+    if (!bucket) return;
+    (node.inputs ?? []).forEach((input) => {
+      if (!consumerBuckets.has(input)) consumerBuckets.set(input, bucket);
+    });
+  });
+
+  nodes.forEach((node) => {
+    if (assigned.has(node.id)) return;
+    const outputConsumers = (node.outputs ?? []).map((output) => consumerBuckets.get(output)).filter(Boolean);
+    const bucket = outputConsumers.find((candidate) => candidate !== "outputs") ?? "runtime_support";
+    buckets[bucket].push(node);
+    assigned.set(node.id, bucket);
+  });
+}
+
+function transformerBlockIndex(node) {
+  const match = searchableNodeText(node).match(/(?:^|[/.])h\.(\d+)(?:[/.]|$)/);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+
+function nodeMatches(node, pattern) {
+  return pattern.test(searchableNodeText(node));
+}
+
+function searchableNodeText(node) {
+  return [node.name, node.opType, ...(node.inputs ?? []), ...(node.outputs ?? [])].filter(Boolean).join(" ");
+}
+
+function formatBlockRange(indexes) {
+  if (!indexes.length) return "";
+  if (indexes.length === 1) return `h.${indexes[0]}`;
+  return `h.${indexes[0]}-h.${indexes.at(-1)}`;
+}
+
+function estimateBlockCount(nodes) {
+  const layerNorms = nodes.filter((node) => nodeMatches(node, /\/ln_[12]\//)).length;
+  return layerNorms ? Math.max(1, Math.round(layerNorms / 10)) : null;
+}
+
+function inputTensorNames(nodes) {
+  const names = nodes.map((node) => node.name).filter(Boolean);
+  return names.length ? names.join(", ") : "model inputs";
+}
+
+function outputTensorSummary(nodes) {
+  const names = nodes.map((node) => node.name).filter(Boolean);
+  const visible = names.filter((name) => !/^present\.\d+\.(key|value)$/.test(name));
+  const cacheCount = names.length - visible.length;
+  return [...visible, cacheCount ? `${cacheCount} key/value cache tensors` : null].filter(Boolean).join(", ") || "model outputs";
+}
+
+function hasTiedEmbeddingHead(nodes) {
+  return nodes.some((node) => nodeMatches(node, /wte\.weight_transposed|transformer\.wte\.weight/));
 }

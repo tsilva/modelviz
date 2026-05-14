@@ -197,6 +197,14 @@ function inferProfiles(family, opCounts) {
   const hasDense = (opCounts.Gemm ?? 0) + (opCounts.MatMul ?? 0) > 0;
   const hasConv = (opCounts.Conv ?? 0) > 0;
 
+  if (family === "Attention model") {
+    return [
+      { id: "transformer", name: "Transformer decoder", status: "active", confidence: 94 },
+      { id: "generic", name: "ONNX attention graph", status: "ready", confidence: 82 },
+      { id: "unknown", name: "Unknown fallback", status: "generic", confidence: 48 }
+    ];
+  }
+
   if (family === "MLP classifier" || hasDense) {
     return [
       { id: "mlp", name: "MLP classifier", status: "active", confidence: family === "MLP classifier" ? 96 : 82 },

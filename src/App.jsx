@@ -38,7 +38,12 @@ const cleanLayout = {
   attn0: { x: 80, y: 22 },
   mlp0: { x: 52, y: 78 },
   repeat: { x: 80, y: 52 },
-  head: { x: 80, y: 82 }
+  head: { x: 80, y: 82 },
+  runtime_support: { x: 28, y: 78 },
+  transformer_blocks: { x: 50, y: 46 },
+  final_norm: { x: 72, y: 24 },
+  lm_head: { x: 84, y: 46 },
+  outputs: { x: 72, y: 68 }
 };
 
 const groupColors = {
@@ -53,6 +58,7 @@ const groupColors = {
   activation: ["#be123c", "#ffe4e6"],
   layout: ["#0f7fbd", "#e0f2fe"],
   compute: ["#334155", "#f1f5f9"],
+  support: ["#64748b", "#f8fafc"],
   convolution: ["#7c2d12", "#ffedd5"],
   pooling: ["#0369a1", "#e0f2fe"],
   repeat: ["#0f7fbd", "#e0f2fe"],
@@ -387,11 +393,7 @@ function App() {
                   <span>Traceability</span>
                   <GitBranch size={14} />
                 </div>
-                <div className="raw-id-list">
-                  {selectedGroup.rawNodeIds.map((id) => (
-                    <code key={id}>{id}</code>
-                  ))}
-                </div>
+                <TraceabilityList ids={selectedGroup.rawNodeIds} />
               </section>
               <section className="tensor-card">
                 <div className="panel-title">
@@ -589,6 +591,20 @@ function RemoteModelCard({ model, fit, onLoad }) {
   );
 }
 
+function TraceabilityList({ ids }) {
+  const visibleIds = ids.slice(0, 24);
+  const hiddenCount = ids.length - visibleIds.length;
+
+  return (
+    <div className="raw-id-list">
+      {visibleIds.map((id) => (
+        <code key={id}>{id}</code>
+      ))}
+      {hiddenCount > 0 && <span className="raw-id-more">+{hiddenCount} more raw nodes</span>}
+    </div>
+  );
+}
+
 function formatCount(value) {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
@@ -642,7 +658,7 @@ function CleanGraph({ groups, edges, selectedGroupId, onSelect }) {
           <button
             key={group.id}
             className={`clean-node ${selectedGroupId === group.id ? "selected" : ""}`}
-            style={{ left: `clamp(68px, ${layout.x}%, calc(100% - 68px))`, top: `clamp(50px, ${layout.y}%, calc(100% - 50px))`, "--group": color, "--group-soft": soft }}
+            style={{ left: `clamp(78px, ${layout.x}%, calc(100% - 78px))`, top: `clamp(50px, ${layout.y}%, calc(100% - 50px))`, "--group": color, "--group-soft": soft }}
             onClick={() => onSelect(group.id)}
           >
             <span>{group.kind}</span>
