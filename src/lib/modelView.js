@@ -160,17 +160,21 @@ function formatGroupLabel(node, index, total, kind) {
 }
 
 function layoutRawNodes(nodes) {
-  if (nodes.length <= 1) return nodes.map((node) => ({ ...node, x: 50, y: 50 }));
-  const columns = nodes.length <= 4 ? nodes.length : Math.min(4, Math.ceil(Math.sqrt(nodes.length)));
+  if (nodes.length <= 1) return nodes.map((node) => ({ ...node, x: 140, y: 110 }));
+  const columns = nodes.length <= 6 ? nodes.length : Math.ceil(Math.sqrt(nodes.length * 1.6));
   const rows = Math.ceil(nodes.length / columns);
+  const xGap = 168;
+  const yGap = 98;
+  const marginX = 112;
+  const marginY = 100;
 
   return nodes.map((node, index) => {
     const column = index % columns;
     const row = Math.floor(index / columns);
     return {
       ...node,
-      x: 14 + (columns === 1 ? 36 : (column / (columns - 1)) * 72),
-      y: rows === 1 ? 50 : 33 + (row / Math.max(rows - 1, 1)) * 38
+      x: marginX + column * xGap,
+      y: marginY + row * yGap
     };
   });
 }

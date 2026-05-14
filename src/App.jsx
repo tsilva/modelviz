@@ -1,8 +1,7 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Braces,
-  CheckCircle2,
   CircuitBoard,
   Database,
   DownloadCloud,
@@ -18,7 +17,9 @@ import {
   Search,
   ShieldCheck,
   SlidersHorizontal,
-  X
+  X,
+  ZoomIn,
+  ZoomOut
 } from "lucide-react";
 import { classifyRawNode, createArchitectureGroups, createCleanEdges, summarizeCoverage } from "./lib/abstraction.js";
 import { createEmptyModelView, createModelViewFromOnnx } from "./lib/modelView.js";
@@ -72,17 +73,16 @@ function App() {
   const [selectedGroupId, setSelectedGroupId] = useState(null);
   const [selectedProfile, setSelectedProfile] = useState(null);
   const [loadStatus, setLoadStatus] = useState({ state: "idle", message: "Load an ONNX model file to begin" });
+  const [loadProgress, setLoadProgress] = useState(null);
   const [webQuery, setWebQuery] = useState("mnist onnx");
   const [webResults, setWebResults] = useState([]);
   const [webStatus, setWebStatus] = useState({ state: "idle", message: "Search public ONNX files" });
-  const [directUrl, setDirectUrl] = useState("");
   const [directModel, setDirectModel] = useState(null);
   const [modelBrowserOpen, setModelBrowserOpen] = useState(false);
   const [browserSort, setBrowserSort] = useState("fit");
   const [browserFitFilter, setBrowserFitFilter] = useState("all");
   const inputRef = useRef(null);
   const webSearchAbortRef = useRef(null);
-  const directAbortRef = useRef(null);
 
   const groups = useMemo(() => createArchitectureGroups(modelView.rawNodes, modelView.model), [modelView]);
   const cleanEdges = useMemo(() => createCleanEdges(groups), [groups]);
@@ -154,10 +154,24 @@ function App() {
     webSearchAbortRef.current?.abort();
     const controller = new AbortController();
     webSearchAbortRef.current = controller;
-    setWebStatus({ state: "loading", message: "Searching Hugging Face ONNX models" });
+    const trimmedQuery = webQuery.trim();
+    const directUrlQuery = isDirectOnnxUrl(trimmedQuery);
+    setWebStatus({
+      state: "loading",
+      message: directUrlQuery ? "Checking remote ONNX URL" : "Searching Hugging Face ONNX models"
+    });
 
     try {
-      const results = await searchWebOnnxModels(webQuery, controller.signal);
+      if (directUrlQuery) {
+        const remote = await createRemoteModelFromUrl(trimmedQuery, controller.signal);
+        setDirectModel(remote);
+        setWebResults([]);
+        setWebStatus({ state: "ready", message: "Remote URL assessed" });
+        return;
+      }
+
+      const results = await searchWebOnnxModels(trimmedQuery, controller.signal);
+      setDirectModel(null);
       setWebResults(results);
       setWebStatus({
         state: "ready",
@@ -176,41 +190,57 @@ function App() {
     }
   };
 
-  const checkDirectUrl = async (event) => {
-    event?.preventDefault();
-    directAbortRef.current?.abort();
-    const controller = new AbortController();
-    directAbortRef.current = controller;
-    setDirectModel(null);
-    setWebStatus({ state: "loading", message: "Checking remote ONNX URL" });
-
-    try {
-      const remote = await createRemoteModelFromUrl(directUrl, controller.signal);
-      setDirectModel(remote);
-      setWebStatus({ state: "ready", message: "Remote URL assessed" });
-    } catch (error) {
-      if (controller.signal.aborted) return;
-      setWebStatus({ state: "error", message: error.message });
-    }
-  };
-
   const loadRemoteModel = async (remoteModel) => {
+    setModelBrowserOpen(false);
     setLoadStatus({ state: "loading", message: `Downloading ${remoteModel.artifactPath}` });
+    setLoadProgress({
+      state: "loading",
+      title: `Loading ${remoteModel.name}`,
+      detail: remoteModel.artifactPath,
+      loadedBytes: 0,
+      totalBytes: remoteModel.sizeBytes ?? remoteModel.estimatedBytes ?? null
+    });
 
     try {
       const response = await fetch(remoteModel.downloadUrl);
       if (!response.ok) throw new Error(`Remote model download failed (${response.status})`);
-      const buffer = await response.arrayBuffer();
+      const totalBytes = readContentLength(response) ?? remoteModel.sizeBytes ?? remoteModel.estimatedBytes ?? null;
+      const buffer = await readResponseBuffer(response, {
+        totalBytes,
+        onProgress: (loadedBytes) => {
+          setLoadProgress({
+            state: "loading",
+            title: `Loading ${remoteModel.name}`,
+            detail: remoteModel.artifactPath,
+            loadedBytes,
+            totalBytes
+          });
+        }
+      });
+      setLoadProgress({
+        state: "loading",
+        title: `Parsing ${remoteModel.name}`,
+        detail: "Building graph and architecture groups",
+        loadedBytes: totalBytes ?? buffer.byteLength,
+        totalBytes: totalBytes ?? buffer.byteLength
+      });
       await loadModelBuffer({
         fileName: remoteModel.artifactPath.split("/").pop() || remoteModel.name || "model.onnx",
         sourcePath: remoteModel.downloadUrl,
         buffer
       });
       setWebStatus({ state: "ready", message: `Loaded ${remoteModel.modelId}` });
-      setModelBrowserOpen(false);
+      setLoadProgress(null);
     } catch (error) {
       setLoadStatus({ state: "error", message: error.message });
       setWebStatus({ state: "error", message: error.message });
+      setLoadProgress({
+        state: "error",
+        title: "Model load failed",
+        detail: error.message,
+        loadedBytes: 0,
+        totalBytes: null
+      });
     }
   };
 
@@ -432,12 +462,9 @@ function App() {
         <ModelBrowserModal
           browserFitFilter={browserFitFilter}
           browserSort={browserSort}
-          directUrl={directUrl}
           fitContext={fitContext}
           models={remoteModels}
-          onCheckDirectUrl={checkDirectUrl}
           onClose={() => setModelBrowserOpen(false)}
-          onDirectUrlChange={setDirectUrl}
           onFitFilterChange={setBrowserFitFilter}
           onLoadRemoteModel={loadRemoteModel}
           onSearch={searchWebModels}
@@ -447,19 +474,92 @@ function App() {
           onQueryChange={setWebQuery}
         />
       )}
+      {loadProgress && (
+        <LoadingProgressModal
+          progress={loadProgress}
+          onClose={() => setLoadProgress(null)}
+        />
+      )}
     </main>
+  );
+}
+
+async function readResponseBuffer(response, { totalBytes, onProgress }) {
+  if (!response.body?.getReader) {
+    const buffer = await response.arrayBuffer();
+    onProgress?.(buffer.byteLength);
+    return buffer;
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let loadedBytes = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loadedBytes += value.byteLength;
+    onProgress?.(loadedBytes, totalBytes);
+  }
+
+  const merged = new Uint8Array(loadedBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return merged.buffer;
+}
+
+function readContentLength(response) {
+  const value = Number(response.headers.get("content-length"));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function LoadingProgressModal({ progress, onClose }) {
+  const totalBytes = progress.totalBytes;
+  const loadedBytes = progress.loadedBytes ?? 0;
+  const hasTotal = Number.isFinite(totalBytes) && totalBytes > 0;
+  const percent = hasTotal ? Math.min(100, Math.round((loadedBytes / totalBytes) * 100)) : null;
+  const isError = progress.state === "error";
+
+  return (
+    <div className="loading-modal-backdrop" role="presentation">
+      <section className={`loading-modal ${progress.state}`} role="dialog" aria-modal="true" aria-labelledby="loading-modal-title">
+        <header>
+          <div className="loading-modal-icon">
+            {isError ? <AlertTriangle size={20} /> : <DownloadCloud size={20} />}
+          </div>
+          <div>
+            <h2 id="loading-modal-title">{progress.title}</h2>
+            <p>{progress.detail}</p>
+          </div>
+          {isError && (
+            <button className="icon-button" onClick={onClose} aria-label="Dismiss load error">
+              <X size={20} />
+            </button>
+          )}
+        </header>
+        <div className="progress-track" aria-label="Model loading progress">
+          <span className={hasTotal ? "" : "indeterminate"} style={hasTotal ? { width: `${percent}%` } : undefined} />
+        </div>
+        <div className="loading-modal-meta">
+          <span>{hasTotal ? `${percent}%` : "Downloading"}</span>
+          <span>{hasTotal ? `${formatBytes(loadedBytes)} / ${formatBytes(totalBytes)}` : formatBytes(loadedBytes)}</span>
+        </div>
+      </section>
+    </div>
   );
 }
 
 function ModelBrowserModal({
   browserFitFilter,
   browserSort,
-  directUrl,
   fitContext,
   models,
-  onCheckDirectUrl,
   onClose,
-  onDirectUrlChange,
   onFitFilterChange,
   onLoadRemoteModel,
   onSearch,
@@ -489,21 +589,10 @@ function ModelBrowserModal({
           <form className="modal-search-form" onSubmit={onSearch}>
             <label className="modal-search-box">
               <Search size={20} />
-              <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search public ONNX models" autoFocus />
+              <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search public ONNX models or paste a direct .onnx URL" autoFocus />
             </label>
             <button type="submit" className="modal-primary" disabled={status.state === "loading"}>
               Search
-            </button>
-          </form>
-
-          <form className="direct-url-row" onSubmit={onCheckDirectUrl}>
-            <label>
-              <span>Direct ONNX URL</span>
-              <input value={directUrl} onChange={(event) => onDirectUrlChange(event.target.value)} placeholder="https://.../model.onnx" />
-            </label>
-            <button type="submit" className="modal-secondary" disabled={!directUrl.trim() || status.state === "loading"}>
-              <CheckCircle2 size={15} />
-              Check
             </button>
           </form>
 
@@ -605,6 +694,17 @@ function TraceabilityList({ ids }) {
   );
 }
 
+function isDirectOnnxUrl(value) {
+  if (!value) return false;
+
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || url.protocol === "http:") && url.pathname.toLowerCase().endsWith(".onnx");
+  } catch {
+    return false;
+  }
+}
+
 function formatCount(value) {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
@@ -612,30 +712,109 @@ function formatCount(value) {
 }
 
 function RawGraph({ nodes, selectedRawIds }) {
+  const [zoom, setZoom] = useState(() => defaultRawZoom(nodes.length));
+  const viewportRef = useRef(null);
+  const panRef = useRef(null);
   const edges = useMemo(() => createRawEdges(nodes), [nodes]);
+  const canvas = useMemo(() => createRawCanvas(nodes), [nodes]);
+  const spacerStyle = {
+    width: `${canvas.width * zoom}px`,
+    height: `${canvas.height * zoom}px`
+  };
+  const canvasStyle = {
+    width: `${canvas.width}px`,
+    height: `${canvas.height}px`,
+    transform: `scale(${zoom})`
+  };
+
+  useEffect(() => {
+    setZoom(defaultRawZoom(nodes.length));
+  }, [nodes.length]);
+
+  const startPan = (event) => {
+    if (!viewportRef.current) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    panRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      left: viewportRef.current.scrollLeft,
+      top: viewportRef.current.scrollTop
+    };
+    event.currentTarget.classList.add("panning");
+  };
+
+  const movePan = (event) => {
+    if (!panRef.current || !viewportRef.current) return;
+    viewportRef.current.scrollLeft = panRef.current.left - (event.clientX - panRef.current.x);
+    viewportRef.current.scrollTop = panRef.current.top - (event.clientY - panRef.current.y);
+  };
+
+  const stopPan = (event) => {
+    panRef.current = null;
+    event.currentTarget.classList.remove("panning");
+  };
 
   return (
     <div className="raw-graph">
-      <svg viewBox="0 0 100 100" className="edges" preserveAspectRatio="none" aria-hidden="true">
-        {edges.map((edge) => (
-          <path key={edge.id} className={edge.traced ? "trace-edge" : ""} d={edge.path} />
-        ))}
-      </svg>
-      {nodes.map((node) => {
-        const selected = selectedRawIds.has(node.id);
-        return (
-          <button
-            key={node.id}
-            className={`raw-node ${classifyRawNode(node)} ${selected ? "traced" : ""}`}
-            style={{ left: `clamp(54px, ${node.x}%, calc(100% - 54px))`, top: `clamp(44px, ${node.y}%, calc(100% - 44px))` }}
-          >
-            <strong>{node.opType}</strong>
-            <span>{node.name.split("/").pop()}</span>
-          </button>
-        );
-      })}
+      <div className="raw-graph-tools" aria-label="Raw graph zoom controls">
+        <button type="button" onClick={() => setZoom((value) => Math.max(0.25, Number((value - 0.1).toFixed(2))))} aria-label="Zoom out raw graph">
+          <ZoomOut size={14} />
+        </button>
+        <span>{Math.round(zoom * 100)}%</span>
+        <button type="button" onClick={() => setZoom((value) => Math.min(1.4, Number((value + 0.1).toFixed(2))))} aria-label="Zoom in raw graph">
+          <ZoomIn size={14} />
+        </button>
+      </div>
+      <div
+        ref={viewportRef}
+        className="raw-graph-viewport"
+        onPointerDown={startPan}
+        onPointerMove={movePan}
+        onPointerUp={stopPan}
+        onPointerCancel={stopPan}
+        onPointerLeave={stopPan}
+      >
+        <div className="raw-graph-spacer" style={spacerStyle}>
+          <div className="raw-graph-canvas" style={canvasStyle}>
+            <svg viewBox={`0 0 ${canvas.width} ${canvas.height}`} className="raw-edges" aria-hidden="true">
+              {edges.map((edge) => (
+                <path key={edge.id} className={edge.traced ? "trace-edge" : ""} d={edge.path} />
+              ))}
+            </svg>
+            {nodes.map((node) => {
+              const selected = selectedRawIds.has(node.id);
+              return (
+                <button
+                  key={node.id}
+                  className={`raw-node ${classifyRawNode(node)} ${selected ? "traced" : ""}`}
+                  style={{ left: `${node.x}px`, top: `${node.y}px` }}
+                >
+                  <strong>{node.opType}</strong>
+                  <span>{node.name.split("/").pop()}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   );
+}
+
+function defaultRawZoom(nodeCount) {
+  if (nodeCount > 700) return 0.45;
+  if (nodeCount > 300) return 0.55;
+  if (nodeCount > 120) return 0.7;
+  return 1;
+}
+
+function createRawCanvas(nodes) {
+  const maxX = Math.max(0, ...nodes.map((node) => node.x ?? 0));
+  const maxY = Math.max(0, ...nodes.map((node) => node.y ?? 0));
+  return {
+    width: Math.max(720, maxX + 150),
+    height: Math.max(460, maxY + 120)
+  };
 }
 
 function CleanGraph({ groups, edges, selectedGroupId, onSelect }) {
