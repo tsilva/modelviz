@@ -777,8 +777,16 @@ function RawGraph({ nodes, selectedRawIds }) {
         <div className="raw-graph-spacer" style={spacerStyle}>
           <div className="raw-graph-canvas" style={canvasStyle}>
             <svg viewBox={`0 0 ${canvas.width} ${canvas.height}`} className="raw-edges" aria-hidden="true">
+              <defs>
+                <marker id="raw-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto" markerUnits="strokeWidth">
+                  <path d="M 0 0 L 10 5 L 0 10 z" />
+                </marker>
+                <marker id="raw-trace-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto" markerUnits="strokeWidth">
+                  <path d="M 0 0 L 10 5 L 0 10 z" />
+                </marker>
+              </defs>
               {edges.map((edge) => (
-                <path key={edge.id} className={edge.traced ? "trace-edge" : ""} d={edge.path} />
+                <path key={edge.id} className={edge.traced ? "trace-edge" : ""} d={edge.path} markerEnd={edge.traced ? "url(#raw-trace-arrow)" : "url(#raw-arrow)"} />
               ))}
             </svg>
             {nodes.map((node) => {
@@ -818,26 +826,43 @@ function createRawCanvas(nodes) {
 }
 
 function CleanGraph({ groups, edges, selectedGroupId, onSelect }) {
+  const graphRef = useRef(null);
+  const graphSize = useElementSize(graphRef);
   const layoutById = useMemo(() => createCleanLayout(groups), [groups]);
+  const pointsById = useMemo(() => createCleanPoints(layoutById, graphSize), [layoutById, graphSize]);
+  const hasMeasuredGraph = graphSize.width > 0 && graphSize.height > 0;
 
   return (
-    <div className="clean-graph">
-      <svg viewBox="0 0 100 100" className="edges" preserveAspectRatio="none" aria-hidden="true">
+    <div ref={graphRef} className="clean-graph">
+      {hasMeasuredGraph && (
+      <svg viewBox={`0 0 ${graphSize.width} ${graphSize.height}`} className="edges" aria-hidden="true">
+        <defs>
+          <marker id="clean-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto" markerUnits="strokeWidth">
+            <path d="M 0 0 L 10 5 L 0 10 z" />
+          </marker>
+        </defs>
         {edges.map(([from, to]) => {
-          const a = layoutById[from];
-          const b = layoutById[to];
+          const a = pointsById[from];
+          const b = pointsById[to];
           if (!a || !b) return null;
-          return <path key={`${from}-${to}`} d={`M${a.x + 5} ${a.y} C${a.x + 10} ${a.y}, ${b.x - 10} ${b.y}, ${b.x - 5} ${b.y}`} />;
+          return <path key={`${from}-${to}`} d={createCleanEdgePath(a, b)} markerEnd="url(#clean-arrow)" />;
         })}
       </svg>
+      )}
       {groups.map((group) => {
         const layout = layoutById[group.id];
+        const point = pointsById[group.id];
         const [color, soft] = groupColors[group.kind] ?? groupColors.input;
         return (
           <button
             key={group.id}
             className={`clean-node ${selectedGroupId === group.id ? "selected" : ""}`}
-            style={{ left: `clamp(78px, ${layout.x}%, calc(100% - 78px))`, top: `clamp(50px, ${layout.y}%, calc(100% - 50px))`, "--group": color, "--group-soft": soft }}
+            style={{
+              left: point ? `${point.x}px` : `clamp(78px, ${layout.x}%, calc(100% - 78px))`,
+              top: point ? `${point.y}px` : `clamp(50px, ${layout.y}%, calc(100% - 50px))`,
+              "--group": color,
+              "--group-soft": soft
+            }}
             onClick={() => onSelect(group.id)}
           >
             <span>{group.kind}</span>
@@ -860,10 +885,24 @@ function createRawEdges(nodes) {
     (node.inputs ?? []).flatMap((input) => {
       const source = byOutput.get(input);
       if (!source || source.id === node.id) return [];
-      const path = `M${source.x} ${source.y} C${source.x + 8} ${source.y}, ${node.x - 8} ${node.y}, ${node.x} ${node.y}`;
+      const path = createDirectedEdgePath(source, node, 58, 58);
       return [{ id: `${source.id}-${node.id}-${input}`, path, traced: selectedEdge(source, node) }];
     })
   );
+}
+
+function createCleanEdgePath(source, target) {
+  return createDirectedEdgePath(source, target, 82, 82);
+}
+
+function createDirectedEdgePath(source, target, sourceHalfWidth, targetHalfWidth) {
+  const direction = target.x >= source.x ? 1 : -1;
+  const startX = source.x + direction * sourceHalfWidth;
+  const endX = target.x - direction * targetHalfWidth;
+  const distance = Math.max(Math.abs(endX - startX), 16);
+  const curve = distance * 0.45 * direction;
+
+  return `M${startX} ${source.y} C${startX + curve} ${source.y}, ${endX - curve} ${target.y}, ${endX} ${target.y}`;
 }
 
 function selectedEdge(source, target) {
@@ -886,6 +925,51 @@ function createCleanLayout(groups) {
       return [group.id, { x, y }];
     })
   );
+}
+
+function createCleanPoints(layoutById, size) {
+  if (!size.width || !size.height) return {};
+
+  return Object.fromEntries(
+    Object.entries(layoutById).map(([id, layout]) => [
+      id,
+      {
+        x: clamp((layout.x / 100) * size.width, 82, size.width - 82),
+        y: clamp((layout.y / 100) * size.height, 54, size.height - 54)
+      }
+    ])
+  );
+}
+
+function useElementSize(ref) {
+  const [size, setSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return undefined;
+
+    const updateSize = () => {
+      const next = element.getBoundingClientRect();
+      setSize({ width: next.width, height: next.height });
+    };
+
+    updateSize();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateSize);
+      return () => window.removeEventListener("resize", updateSize);
+    }
+
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+
+  return size;
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function createSelectedTensorRows(group, tensorRows) {
