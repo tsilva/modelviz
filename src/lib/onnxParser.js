@@ -30,8 +30,11 @@ class ProtoReader {
   }
 
   tag() {
+    const offset = this.pos;
     const value = this.varint();
-    return { field: value >> 3, wire: value & 7 };
+    const tag = { field: value >> 3, wire: value & 7, offset };
+    this.lastTag = tag;
+    return tag;
   }
 
   varint() {
@@ -96,7 +99,8 @@ class ProtoReader {
     }
 
     if (wire === 2) {
-      this.pos += this.varint();
+      const length = this.varint();
+      this.pos += length;
       return;
     }
 
@@ -118,7 +122,7 @@ class ProtoReader {
       return;
     }
 
-    throw new Error(`Unsupported protobuf wire type ${wire}`);
+    throw new Error(`Unsupported protobuf wire type ${wire} at byte ${this.lastTag?.offset ?? this.pos} after field ${this.lastTag?.field ?? "?"}`);
   }
 }
 
@@ -161,13 +165,21 @@ function parseOpset(reader) {
 
 function parseGraph(reader) {
   const graph = { name: "", nodes: [], inputs: [], outputs: [], initializers: [] };
+  let initializerIndex = 0;
 
   while (!reader.eof()) {
     const { field, wire } = reader.tag();
     if (field === 1 && wire === 2) graph.nodes.push(reader.message(parseNode));
     else if (field === 2 && wire === 2) graph.name = reader.string();
-    else if (field === 5 && wire === 2) graph.initializers.push(reader.message(parseTensor));
-    else if (field === 11 && wire === 2) graph.inputs.push(reader.message(parseValueInfo));
+    else if (field === 5 && wire === 2) {
+      initializerIndex += 1;
+      try {
+        graph.initializers.push(reader.message(parseTensor));
+      } catch (error) {
+        error.message = `Initializer ${initializerIndex}: ${error.message}`;
+        throw error;
+      }
+    } else if (field === 11 && wire === 2) graph.inputs.push(reader.message(parseValueInfo));
     else if (field === 12 && wire === 2) graph.outputs.push(reader.message(parseValueInfo));
     else reader.skip(wire);
   }
