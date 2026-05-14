@@ -17,7 +17,8 @@ import {
   PanelRight,
   Search,
   ShieldCheck,
-  SlidersHorizontal
+  SlidersHorizontal,
+  X
 } from "lucide-react";
 import { classifyRawNode, createArchitectureGroups, createCleanEdges, summarizeCoverage } from "./lib/abstraction.js";
 import { createEmptyModelView, createModelViewFromOnnx } from "./lib/modelView.js";
@@ -70,6 +71,9 @@ function App() {
   const [webStatus, setWebStatus] = useState({ state: "idle", message: "Search public ONNX files" });
   const [directUrl, setDirectUrl] = useState("");
   const [directModel, setDirectModel] = useState(null);
+  const [modelBrowserOpen, setModelBrowserOpen] = useState(false);
+  const [browserSort, setBrowserSort] = useState("fit");
+  const [browserFitFilter, setBrowserFitFilter] = useState("all");
   const inputRef = useRef(null);
   const webSearchAbortRef = useRef(null);
   const directAbortRef = useRef(null);
@@ -92,6 +96,23 @@ function App() {
   }, [modelView.rawNodes, query]);
 
   const fitContext = useMemo(() => getBrowserFitContext(), []);
+  const remoteModels = useMemo(() => {
+    const combined = directModel ? [directModel, ...webResults.filter((model) => model.id !== directModel.id)] : webResults;
+    const withFit = combined.map((model) => ({ model, fit: assessRemoteModelFit(model, fitContext) }));
+    const filtered = withFit.filter(({ fit }) => {
+      if (browserFitFilter === "all") return true;
+      if (browserFitFilter === "fits") return ["Fits", "Likely"].includes(fit.label);
+      if (browserFitFilter === "borderline") return fit.label === "Borderline";
+      return fit.label === "Too large";
+    });
+
+    return filtered.sort((a, b) => {
+      if (browserSort === "downloads") return (b.model.downloads ?? 0) - (a.model.downloads ?? 0);
+      if (browserSort === "size") return (a.model.sizeBytes ?? a.model.estimatedBytes ?? Number.MAX_SAFE_INTEGER) - (b.model.sizeBytes ?? b.model.estimatedBytes ?? Number.MAX_SAFE_INTEGER);
+      if (browserSort === "name") return a.model.name.localeCompare(b.model.name);
+      return b.fit.score - a.fit.score;
+    });
+  }, [browserFitFilter, browserSort, directModel, fitContext, webResults]);
 
   const openFile = async (event) => {
     const [file] = event.target.files ?? [];
@@ -142,6 +163,13 @@ function App() {
     }
   };
 
+  const openModelBrowser = () => {
+    setModelBrowserOpen(true);
+    if (webResults.length === 0 && webStatus.state === "idle") {
+      searchWebModels();
+    }
+  };
+
   const checkDirectUrl = async (event) => {
     event?.preventDefault();
     directAbortRef.current?.abort();
@@ -173,8 +201,10 @@ function App() {
         buffer
       });
       setWebStatus({ state: "ready", message: `Loaded ${remoteModel.modelId}` });
+      setModelBrowserOpen(false);
     } catch (error) {
       setLoadStatus({ state: "error", message: error.message });
+      setWebStatus({ state: "error", message: error.message });
     }
   };
 
@@ -191,6 +221,10 @@ function App() {
         <button className="primary" onClick={() => inputRef.current?.click()}>
           <FileUp size={16} />
           Open ONNX
+        </button>
+        <button className="secondary-topbar" onClick={openModelBrowser}>
+          <Globe2 size={16} />
+          Browse web
         </button>
         <input ref={inputRef} type="file" accept=".onnx,.json" hidden onChange={openFile} />
         <label className="search-box">
@@ -253,19 +287,6 @@ function App() {
           ) : (
             <div className="empty-list">Profiles appear after a model is parsed.</div>
           )}
-          <ModelBrowser
-            directModel={directModel}
-            directUrl={directUrl}
-            fitContext={fitContext}
-            onCheckDirectUrl={checkDirectUrl}
-            onDirectUrlChange={setDirectUrl}
-            onLoadRemoteModel={loadRemoteModel}
-            onSearch={searchWebModels}
-            results={webResults}
-            status={webStatus}
-            query={webQuery}
-            onQueryChange={setWebQuery}
-          />
         </aside>
 
         <section className={`center-panel ${hasModel ? "" : "empty"}`}>
@@ -324,10 +345,16 @@ function App() {
                 <FileUp size={34} />
                 <strong>Load an ONNX model file first</strong>
                 <span>ModelViz starts empty and only renders graph data parsed from a file you choose.</span>
-                <button className="primary" onClick={() => inputRef.current?.click()}>
-                  <FileUp size={16} />
-                  Open ONNX
-                </button>
+                <div className="empty-actions">
+                  <button className="primary" onClick={() => inputRef.current?.click()}>
+                    <FileUp size={16} />
+                    Open ONNX
+                  </button>
+                  <button className="secondary-action" onClick={openModelBrowser}>
+                    <Globe2 size={16} />
+                    Browse web
+                  </button>
+                </div>
               </div>
             </section>
           )}
@@ -399,110 +426,173 @@ function App() {
           )}
         </aside>
       </section>
+      {modelBrowserOpen && (
+        <ModelBrowserModal
+          browserFitFilter={browserFitFilter}
+          browserSort={browserSort}
+          directUrl={directUrl}
+          fitContext={fitContext}
+          models={remoteModels}
+          onCheckDirectUrl={checkDirectUrl}
+          onClose={() => setModelBrowserOpen(false)}
+          onDirectUrlChange={setDirectUrl}
+          onFitFilterChange={setBrowserFitFilter}
+          onLoadRemoteModel={loadRemoteModel}
+          onSearch={searchWebModels}
+          onSortChange={setBrowserSort}
+          status={webStatus}
+          query={webQuery}
+          onQueryChange={setWebQuery}
+        />
+      )}
     </main>
   );
 }
 
-function ModelBrowser({
-  directModel,
+function ModelBrowserModal({
+  browserFitFilter,
+  browserSort,
   directUrl,
   fitContext,
+  models,
   onCheckDirectUrl,
+  onClose,
   onDirectUrlChange,
+  onFitFilterChange,
   onLoadRemoteModel,
   onSearch,
-  results,
+  onSortChange,
   status,
   query,
   onQueryChange
 }) {
   return (
-    <section className="model-browser">
-      <div className="panel-title">
-        <span>Web Model Browser</span>
-        <Globe2 size={15} />
-      </div>
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section className="model-browser-modal" role="dialog" aria-modal="true" aria-labelledby="model-browser-title">
+        <header className="modal-header">
+          <div>
+            <h2 id="model-browser-title">Browse ONNX models</h2>
+            <p>
+              Browser parser · {fitContext.deviceMemoryGb ? `${fitContext.deviceMemoryGb} GB RAM hint` : "RAM hint unavailable"} · {fitContext.hardwareConcurrency ?? "?"} CPU threads
+            </p>
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label="Close model browser">
+            <X size={22} />
+          </button>
+        </header>
 
-      <div className="hardware-note">
-        <HardDrive size={15} />
-        <span>
-          {fitContext.deviceMemoryGb
-            ? `${fitContext.deviceMemoryGb} GB device memory · ${fitContext.hardwareConcurrency ?? "?"} threads`
-            : `Memory unavailable · ${fitContext.hardwareConcurrency ?? "?"} threads`}
-        </span>
-      </div>
+        <section className="modal-controls">
+          <form className="modal-search-form" onSubmit={onSearch}>
+            <label className="modal-search-box">
+              <Search size={20} />
+              <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search public ONNX models" autoFocus />
+            </label>
+            <button type="submit" className="modal-primary" disabled={status.state === "loading"}>
+              Search
+            </button>
+          </form>
 
-      <form className="web-search-form" onSubmit={onSearch}>
-        <label>
-          <span>Search Hugging Face</span>
-          <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="mnist, resnet, gpt2" />
-        </label>
-        <button type="submit" className="secondary-action" disabled={status.state === "loading"}>
-          <Search size={14} />
-          Search
-        </button>
-      </form>
+          <form className="direct-url-row" onSubmit={onCheckDirectUrl}>
+            <label>
+              <span>Direct ONNX URL</span>
+              <input value={directUrl} onChange={(event) => onDirectUrlChange(event.target.value)} placeholder="https://.../model.onnx" />
+            </label>
+            <button type="submit" className="modal-secondary" disabled={!directUrl.trim() || status.state === "loading"}>
+              <CheckCircle2 size={15} />
+              Check
+            </button>
+          </form>
 
-      <form className="web-search-form" onSubmit={onCheckDirectUrl}>
-        <label>
-          <span>Direct ONNX URL</span>
-          <input value={directUrl} onChange={(event) => onDirectUrlChange(event.target.value)} placeholder="https://.../model.onnx" />
-        </label>
-        <button type="submit" className="secondary-action" disabled={!directUrl.trim() || status.state === "loading"}>
-          <CheckCircle2 size={14} />
-          Check
-        </button>
-      </form>
+          <div className="modal-filter-grid">
+            <label>
+              <span>Sort</span>
+              <select value={browserSort} onChange={(event) => onSortChange(event.target.value)}>
+                <option value="fit">Best fit</option>
+                <option value="downloads">Downloads</option>
+                <option value="size">Smallest file</option>
+                <option value="name">Name</option>
+              </select>
+            </label>
+            <label>
+              <span>Fit</span>
+              <select value={browserFitFilter} onChange={(event) => onFitFilterChange(event.target.value)}>
+                <option value="all">All fits</option>
+                <option value="fits">Fits memory</option>
+                <option value="borderline">Borderline</option>
+                <option value="too-large">Too large</option>
+              </select>
+            </label>
+            <div className={`web-status ${status.state}`}>
+              {status.state === "error" ? <AlertTriangle size={14} /> : <Globe2 size={14} />}
+              <span>{status.message}</span>
+            </div>
+          </div>
+        </section>
 
-      <div className={`web-status ${status.state}`}>
-        {status.state === "error" ? <AlertTriangle size={14} /> : <Globe2 size={14} />}
-        <span>{status.message}</span>
-      </div>
-
-      {directModel && (
-        <RemoteModelCard model={directModel} fitContext={fitContext} onLoad={onLoadRemoteModel} />
-      )}
-
-      <div className="web-results">
-        {results.map((model) => (
-          <RemoteModelCard key={model.id} model={model} fitContext={fitContext} onLoad={onLoadRemoteModel} />
-        ))}
-      </div>
-    </section>
+        <div className="modal-results">
+          {models.length ? (
+            models.map(({ model, fit }) => (
+              <RemoteModelCard key={model.id} model={model} fit={fit} onLoad={onLoadRemoteModel} />
+            ))
+          ) : (
+            <div className="modal-empty-results">
+              <Globe2 size={26} />
+              <strong>No ONNX models to show</strong>
+              <span>Search Hugging Face or check a direct ONNX URL.</span>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
 
-function RemoteModelCard({ model, fitContext, onLoad }) {
-  const fit = assessRemoteModelFit(model, fitContext);
+function RemoteModelCard({ model, fit, onLoad }) {
   const sizeLabel = formatBytes(model.sizeBytes ?? model.estimatedBytes);
-  const paramsLabel = model.parameterCountB ? `${model.parameterCountB < 1 ? `${Math.round(model.parameterCountB * 1000)}M` : `${model.parameterCountB}B`} params` : "params unknown";
+  const paramsLabel = model.parameterCountB ? `${model.parameterCountB < 1 ? `${Math.round(model.parameterCountB * 1000)}M` : `${model.parameterCountB}B`}` : null;
+  const sourceLabel = model.source === "Direct URL" ? "Direct URL" : "Hugging Face";
+  const popularity = [
+    typeof model.downloads === "number" ? `${formatCount(model.downloads)} downloads` : null,
+    typeof model.likes === "number" ? `${formatCount(model.likes)} likes` : null
+  ].filter(Boolean);
 
   return (
-    <article className="remote-model-card">
-      <div className="remote-model-main">
-        <strong>{model.name}</strong>
-        <span>{model.modelId}</span>
+    <article className={`remote-model-card ${fit.tone}`}>
+      <div className="remote-model-copy">
+        <div className="remote-model-title-row">
+          <strong>{model.name}</strong>
+          <a href={model.downloadUrl} target="_blank" rel="noreferrer" title="Open model file">
+            <ExternalLink size={15} />
+          </a>
+          <span className={`fit-chip ${fit.tone}`}>{fit.label}</span>
+          {paramsLabel && <span className="meta-chip">{paramsLabel}</span>}
+          <span className="meta-chip">{sizeLabel}</span>
+          <span className="meta-chip">ONNX</span>
+        </div>
+        <span className="remote-model-id">{model.modelId}</span>
+        <div className="remote-model-chips">
+          <span>{sourceLabel}</span>
+          <span>{model.artifactPath}</span>
+          <span>{fit.score}% fit</span>
+          <span>{fit.workingSetLabel} working set</span>
+          {popularity.map((item) => <span key={item}>{item}</span>)}
+        </div>
+        <p>{fit.summary}</p>
       </div>
-      <div className="remote-model-meta">
-        <code>{model.artifactPath}</code>
-        <span>{sizeLabel} · {paramsLabel}</span>
-      </div>
-      <div className={`fit-pill ${fit.tone}`}>
-        <span>{fit.label}</span>
-        <em>{fit.score}% · {fit.workingSetLabel}</em>
-      </div>
-      <p>{fit.summary}</p>
-      <div className="remote-model-actions">
-        <a href={model.downloadUrl} target="_blank" rel="noreferrer" title="Open model file">
-          <ExternalLink size={14} />
-        </a>
-        <button type="button" onClick={() => onLoad(model)}>
-          <DownloadCloud size={14} />
-          {fit.tone === "red" ? "Load anyway" : "Load"}
-        </button>
-      </div>
+      <button type="button" className="use-model-button" onClick={() => onLoad(model)}>
+        <DownloadCloud size={15} />
+        {fit.tone === "red" ? "Load anyway" : "Use model"}
+      </button>
     </article>
   );
+}
+
+function formatCount(value) {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return String(value);
 }
 
 function RawGraph({ nodes, selectedRawIds }) {
