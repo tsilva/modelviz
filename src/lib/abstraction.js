@@ -77,14 +77,7 @@ export function createCleanEdges(groups) {
     return groups.slice(0, -1).map((group, index) => [group.id, groups[index + 1].id]);
   }
 
-  return [
-    ["inputs", "embeddings"],
-    ["embeddings", "ln1"],
-    ["ln1", "attn0"],
-    ["attn0", "mlp0"],
-    ["mlp0", "repeat"],
-    ["repeat", "head"]
-  ];
+  return [];
 }
 
 export function summarizeCoverage(groups, nodes) {

@@ -157,6 +157,16 @@ button {
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 
+.search-box:has(input:disabled),
+.view-toggle:has(button:disabled) {
+  opacity: 0.68;
+}
+
+.view-toggle button:disabled,
+.search-box input:disabled {
+  cursor: not-allowed;
+}
+
 .status-pill {
   padding: 0 12px;
   color: #047857;
@@ -197,6 +207,10 @@ button {
   gap: 12px;
 }
 
+.center-panel.empty {
+  grid-template-rows: 56px minmax(0, 1fr);
+}
+
 .panel-title {
   display: flex;
   align-items: center;
@@ -222,6 +236,10 @@ button {
 
 .model-card svg {
   color: var(--accent);
+}
+
+.empty-card svg {
+  color: #64748b;
 }
 
 .model-card strong,
@@ -315,6 +333,15 @@ button {
   font-size: 11px;
 }
 
+.empty-list {
+  padding: 12px;
+  color: var(--muted);
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
 .canvas-toolbar {
   display: flex;
   align-items: center;
@@ -362,6 +389,40 @@ button {
     linear-gradient(90deg, rgba(15, 23, 42, 0.035) 1px, transparent 1px),
     #fbfdff;
   background-size: 26px 26px;
+}
+
+.empty-state-panel {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  padding: 24px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.empty-state-content {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  max-width: 420px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.empty-state-content > svg {
+  color: var(--accent);
+}
+
+.empty-state-content strong {
+  color: var(--text);
+  font-size: 18px;
+}
+
+.empty-state-content span {
+  font-size: 13px;
+  line-height: 19px;
 }
 
 .pane-label {
@@ -625,12 +686,22 @@ button {
   font-size: 12px;
 }
 
+.muted-heading {
+  opacity: 0.72;
+}
+
 .inspector-card,
 .tensor-card {
   padding: 12px;
   border-radius: 8px;
   background: #f8fafc;
   border: 1px solid var(--line);
+}
+
+.inspector-empty p {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .kv-row {
@@ -758,6 +829,10 @@ button {
 
   .center-panel {
     grid-template-rows: auto 720px auto;
+  }
+
+  .center-panel.empty {
+    grid-template-rows: auto minmax(420px, 1fr);
   }
 
   .graph-stage {

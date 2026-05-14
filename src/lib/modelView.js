@@ -1,5 +1,3 @@
-import { modelProfiles, rawNodes, sampleModel, tensors } from "../data/modelData.js";
-
 const OP_KIND = {
   Input: "input",
   Output: "output",
@@ -22,14 +20,20 @@ const OP_KIND = {
   LayerNormalization: "normalization"
 };
 
-export function createFixtureModelView() {
+export function createEmptyModelView() {
   return {
-    model: sampleModel,
-    rawNodes,
-    tensors,
-    modelProfiles,
+    model: {
+      fileName: "",
+      family: "",
+      opset: "",
+      irVersion: "",
+      layers: 0
+    },
+    rawNodes: [],
+    tensors: [],
+    modelProfiles: [],
     sourcePath: "",
-    loadMessage: "Fixture model"
+    loadMessage: "No model loaded"
   };
 }
 

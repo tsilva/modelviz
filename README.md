@@ -29,11 +29,11 @@ pnpm preview  # preview the production bundle locally
 
 ## Notes
 
-- The default dev endpoint is `/api/model/default`.
-- Set `MODELVIZ_MODEL_PATH=/path/to/model.onnx` to choose the default model loaded by the dev server.
-- If `MODELVIZ_MODEL_PATH` is not set, the dev server looks for `~/Desktop/mnist_mlp_best_seed1.onnx`.
+- ModelViz starts with an empty state and prompts you to open an ONNX file.
 - Uploaded files are parsed in the browser with the local ONNX protobuf parser.
-- If the default endpoint is unavailable, the UI falls back to fixture data from `src/data/modelData.js`.
+- The dev server still exposes `/api/model/default` for local experiments.
+- Set `MODELVIZ_MODEL_PATH=/path/to/model.onnx` to choose the file served by that endpoint.
+- If `MODELVIZ_MODEL_PATH` is not set, the dev server looks for `~/Desktop/mnist_mlp_best_seed1.onnx`.
 - The package is marked `private` and does not declare a license.
 
 ## Architecture

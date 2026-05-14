@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
   Braces,
   CircuitBoard,
@@ -14,7 +14,7 @@ import {
   SlidersHorizontal
 } from "lucide-react";
 import { classifyRawNode, createArchitectureGroups, createCleanEdges, summarizeCoverage } from "./lib/abstraction.js";
-import { createFixtureModelView, createModelViewFromOnnx } from "./lib/modelView.js";
+import { createEmptyModelView, createModelViewFromOnnx } from "./lib/modelView.js";
 import { parseOnnxModel } from "./lib/onnxParser.js";
 
 const cleanLayout = {
@@ -48,19 +48,20 @@ const groupColors = {
 function App() {
   const [viewMode, setViewMode] = useState("Split");
   const [query, setQuery] = useState("");
-  const [modelView, setModelView] = useState(() => createFixtureModelView());
-  const [selectedGroupId, setSelectedGroupId] = useState("attn0");
-  const [selectedProfile, setSelectedProfile] = useState("gpt2");
-  const [loadStatus, setLoadStatus] = useState({ state: "idle", message: "Fixture model" });
+  const [modelView, setModelView] = useState(() => createEmptyModelView());
+  const [selectedGroupId, setSelectedGroupId] = useState(null);
+  const [selectedProfile, setSelectedProfile] = useState(null);
+  const [loadStatus, setLoadStatus] = useState({ state: "idle", message: "Load an ONNX model file to begin" });
   const inputRef = useRef(null);
 
   const groups = useMemo(() => createArchitectureGroups(modelView.rawNodes, modelView.model), [modelView]);
   const cleanEdges = useMemo(() => createCleanEdges(groups), [groups]);
-  const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? groups[0];
-  const selectedRawIds = new Set(selectedGroup.rawNodeIds);
+  const hasModel = modelView.rawNodes.length > 0;
+  const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? groups[0] ?? null;
+  const selectedRawIds = new Set(selectedGroup?.rawNodeIds ?? []);
   const coverage = useMemo(() => summarizeCoverage(groups, modelView.rawNodes), [groups, modelView.rawNodes]);
   const selectedTensors = useMemo(
-    () => createSelectedTensorRows(selectedGroup, modelView.tensors),
+    () => (selectedGroup ? createSelectedTensorRows(selectedGroup, modelView.tensors) : []),
     [modelView.tensors, selectedGroup]
   );
 
@@ -69,35 +70,6 @@ function App() {
     const needle = query.toLowerCase();
     return modelView.rawNodes.filter((node) => `${node.name} ${node.opType} ${node.groupHint}`.toLowerCase().includes(needle));
   }, [modelView.rawNodes, query]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadDefaultModel() {
-      setLoadStatus({ state: "loading", message: "Loading default ONNX" });
-
-      try {
-        const response = await fetch("/api/model/default");
-        if (!response.ok) throw new Error("Default ONNX endpoint unavailable");
-        const fileName = response.headers.get("X-Model-File-Name") ?? "model.onnx";
-        const sourcePath = response.headers.get("X-Model-Path") ?? "";
-        const parsed = parseOnnxModel(await response.arrayBuffer());
-        const nextView = createModelViewFromOnnx(fileName, parsed, sourcePath);
-        if (cancelled) return;
-        setModelView(nextView);
-        setSelectedGroupId(nextView.rawNodes[0]?.groupId ?? "inputs");
-        setSelectedProfile(nextView.modelProfiles[0]?.id ?? "generic");
-        setLoadStatus({ state: "ready", message: nextView.loadMessage });
-      } catch (error) {
-        if (!cancelled) setLoadStatus({ state: "idle", message: error.message });
-      }
-    }
-
-    loadDefaultModel();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const openFile = async (event) => {
     const [file] = event.target.files ?? [];
@@ -136,16 +108,21 @@ function App() {
         <input ref={inputRef} type="file" accept=".onnx,.json" hidden onChange={openFile} />
         <label className="search-box">
           <Search size={15} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search raw ops, tensors, groups" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={hasModel ? "Search raw ops, tensors, groups" : "Load a model before searching"}
+            disabled={!hasModel}
+          />
         </label>
         <div className="view-toggle" aria-label="Graph view mode">
           {["Raw", "Clean", "Split"].map((mode) => (
-            <button key={mode} className={viewMode === mode ? "active" : ""} onClick={() => setViewMode(mode)}>{mode}</button>
+            <button key={mode} className={viewMode === mode ? "active" : ""} onClick={() => setViewMode(mode)} disabled={!hasModel}>{mode}</button>
           ))}
         </div>
         <div className="status-pill">
           <ShieldCheck size={14} />
-          {coverage.coverage}% traced
+          {hasModel ? `${coverage.coverage}% traced` : "No model"}
         </div>
       </header>
 
@@ -155,116 +132,171 @@ function App() {
             <span>Architecture Profiles</span>
             <SlidersHorizontal size={15} />
           </div>
-          <div className="model-card">
-            <Network size={28} />
-            <div>
-              <strong>{modelView.model.fileName}</strong>
-              <span>IR v{modelView.model.irVersion} · opset {modelView.model.opset} · {modelView.model.layers} ops</span>
+          {hasModel ? (
+            <div className="model-card">
+              <Network size={28} />
+              <div>
+                <strong>{modelView.model.fileName}</strong>
+                <span>IR v{modelView.model.irVersion} · opset {modelView.model.opset} · {modelView.model.layers} ops</span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="model-card empty-card">
+              <FileUp size={28} />
+              <div>
+                <strong>No model loaded</strong>
+                <span>Open an ONNX file to populate profiles</span>
+              </div>
+            </div>
+          )}
           <div className={`load-note ${loadStatus.state}`}>
-            <strong>{modelView.model.family}</strong>
+            <strong>{hasModel ? modelView.model.family : "Waiting for model file"}</strong>
             <span>{loadStatus.message}</span>
             {modelView.sourcePath && <code>{modelView.sourcePath}</code>}
           </div>
-          <div className="profile-list">
-            {modelView.modelProfiles.map((profile) => (
-              <button key={profile.id} className={selectedProfile === profile.id ? "selected" : ""} onClick={() => setSelectedProfile(profile.id)}>
-                <span>{profile.name}</span>
-                <em>{profile.confidence}%</em>
-              </button>
-            ))}
-          </div>
-        </aside>
-
-        <section className="center-panel">
-          <div className="canvas-toolbar">
-            <div>
-              <strong>{viewMode} graph view</strong>
-              <span>{coverage.rawNodes} graph items · {coverage.semanticGroups} semantic groups · {coverage.averageConfidence}% average confidence</span>
-            </div>
-          </div>
-
-          <div className={`graph-stage mode-${viewMode.toLowerCase()}`}>
-            {viewMode !== "Clean" && (
-              <section className="graph-pane raw-pane">
-                <div className="pane-label"><Braces size={15} /> Raw ONNX graph</div>
-                <RawGraph nodes={visibleRawNodes} selectedRawIds={selectedRawIds} />
-              </section>
-            )}
-            {viewMode !== "Raw" && (
-              <section className="graph-pane clean-pane">
-                <div className="pane-label"><Layers3 size={15} /> Clean architecture</div>
-                <CleanGraph groups={groups} edges={cleanEdges} selectedGroupId={selectedGroupId} onSelect={setSelectedGroupId} />
-              </section>
-            )}
-          </div>
-
-          <section className="group-table-panel">
-            <div className="panel-title">
-              <span>Semantic Groups</span>
-            </div>
-            <div className="group-table">
-              <div className="table-row head">
-                <span>Group</span><span>Kind</span><span>Raw nodes</span><span>Confidence</span><span>Recognizer</span><span>Output</span>
-              </div>
-              {groups.map((group) => (
-                <button key={group.id} className={`table-row ${selectedGroupId === group.id ? "selected" : ""}`} onClick={() => setSelectedGroupId(group.id)}>
-                  <span>{group.label}</span>
-                  <span>{group.kind}</span>
-                  <span>{group.rawNodeCount}</span>
-                  <span>{group.confidence}%</span>
-                  <span>{group.recognizer}</span>
-                  <span>{group.outputs.at(-1) ?? "n/a"}</span>
+          {hasModel ? (
+            <div className="profile-list">
+              {modelView.modelProfiles.map((profile) => (
+                <button key={profile.id} className={selectedProfile === profile.id ? "selected" : ""} onClick={() => setSelectedProfile(profile.id)}>
+                  <span>{profile.name}</span>
+                  <em>{profile.confidence}%</em>
                 </button>
               ))}
             </div>
-          </section>
+          ) : (
+            <div className="empty-list">Profiles appear after a model is parsed.</div>
+          )}
+        </aside>
+
+        <section className={`center-panel ${hasModel ? "" : "empty"}`}>
+          <div className="canvas-toolbar">
+            <div>
+              <strong>{hasModel ? `${viewMode} graph view` : "Load a model to inspect"}</strong>
+              <span>
+                {hasModel
+                  ? `${coverage.rawNodes} graph items · ${coverage.semanticGroups} semantic groups · ${coverage.averageConfidence}% average confidence`
+                  : "Open an ONNX file to parse raw operators, tensors, and architecture groups."}
+              </span>
+            </div>
+          </div>
+
+          {hasModel ? (
+            <>
+              <div className={`graph-stage mode-${viewMode.toLowerCase()}`}>
+                {viewMode !== "Clean" && (
+                  <section className="graph-pane raw-pane">
+                    <div className="pane-label"><Braces size={15} /> Raw ONNX graph</div>
+                    <RawGraph nodes={visibleRawNodes} selectedRawIds={selectedRawIds} />
+                  </section>
+                )}
+                {viewMode !== "Raw" && (
+                  <section className="graph-pane clean-pane">
+                    <div className="pane-label"><Layers3 size={15} /> Clean architecture</div>
+                    <CleanGraph groups={groups} edges={cleanEdges} selectedGroupId={selectedGroupId} onSelect={setSelectedGroupId} />
+                  </section>
+                )}
+              </div>
+
+              <section className="group-table-panel">
+                <div className="panel-title">
+                  <span>Semantic Groups</span>
+                </div>
+                <div className="group-table">
+                  <div className="table-row head">
+                    <span>Group</span><span>Kind</span><span>Raw nodes</span><span>Confidence</span><span>Recognizer</span><span>Output</span>
+                  </div>
+                  {groups.map((group) => (
+                    <button key={group.id} className={`table-row ${selectedGroupId === group.id ? "selected" : ""}`} onClick={() => setSelectedGroupId(group.id)}>
+                      <span>{group.label}</span>
+                      <span>{group.kind}</span>
+                      <span>{group.rawNodeCount}</span>
+                      <span>{group.confidence}%</span>
+                      <span>{group.recognizer}</span>
+                      <span>{group.outputs.at(-1) ?? "n/a"}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </>
+          ) : (
+            <section className="empty-state-panel">
+              <div className="empty-state-content">
+                <FileUp size={34} />
+                <strong>Load an ONNX model file first</strong>
+                <span>ModelViz starts empty and only renders graph data parsed from a file you choose.</span>
+                <button className="primary" onClick={() => inputRef.current?.click()}>
+                  <FileUp size={16} />
+                  Open ONNX
+                </button>
+              </div>
+            </section>
+          )}
         </section>
 
         <aside className="right-panel">
-          <div className="inspector-heading">
-            <span><PanelRight size={18} /></span>
-            <div>
-              <strong>{selectedGroup.label}</strong>
-              <small>{selectedGroup.kind} · {selectedGroup.rawNodeCount} raw nodes · {selectedGroup.confidence}% confidence</small>
-            </div>
-          </div>
-          <section className="inspector-card">
-            <div className="panel-title">
-              <span>Metadata</span>
-              <Link2 size={14} />
-            </div>
-            {Object.entries(selectedGroup.metadata).map(([key, value]) => (
-              <div className="kv-row" key={key}>
-                <span>{key}</span>
-                <code>{String(value)}</code>
+          {hasModel && selectedGroup ? (
+            <>
+              <div className="inspector-heading">
+                <span><PanelRight size={18} /></span>
+                <div>
+                  <strong>{selectedGroup.label}</strong>
+                  <small>{selectedGroup.kind} · {selectedGroup.rawNodeCount} raw nodes · {selectedGroup.confidence}% confidence</small>
+                </div>
               </div>
-            ))}
-          </section>
-          <section className="inspector-card">
-            <div className="panel-title">
-              <span>Traceability</span>
-              <GitBranch size={14} />
-            </div>
-            <div className="raw-id-list">
-              {selectedGroup.rawNodeIds.map((id) => (
-                <code key={id}>{id}</code>
-              ))}
-            </div>
-          </section>
-          <section className="tensor-card">
-            <div className="panel-title">
-              <span>Group Tensors</span>
-              <Database size={14} />
-            </div>
-            {selectedTensors.map(({ name, type, shape, relation }) => (
-              <div className="tensor-row" key={`${relation}-${name}`}>
-                <strong>{name}</strong>
-                <span>{relation} · {type} · {shape}</span>
+              <section className="inspector-card">
+                <div className="panel-title">
+                  <span>Metadata</span>
+                  <Link2 size={14} />
+                </div>
+                {Object.entries(selectedGroup.metadata).map(([key, value]) => (
+                  <div className="kv-row" key={key}>
+                    <span>{key}</span>
+                    <code>{String(value)}</code>
+                  </div>
+                ))}
+              </section>
+              <section className="inspector-card">
+                <div className="panel-title">
+                  <span>Traceability</span>
+                  <GitBranch size={14} />
+                </div>
+                <div className="raw-id-list">
+                  {selectedGroup.rawNodeIds.map((id) => (
+                    <code key={id}>{id}</code>
+                  ))}
+                </div>
+              </section>
+              <section className="tensor-card">
+                <div className="panel-title">
+                  <span>Group Tensors</span>
+                  <Database size={14} />
+                </div>
+                {selectedTensors.map(({ name, type, shape, relation }) => (
+                  <div className="tensor-row" key={`${relation}-${name}`}>
+                    <strong>{name}</strong>
+                    <span>{relation} · {type} · {shape}</span>
+                  </div>
+                ))}
+              </section>
+            </>
+          ) : (
+            <>
+              <div className="inspector-heading muted-heading">
+                <span><PanelRight size={18} /></span>
+                <div>
+                  <strong>Model inspector</strong>
+                  <small>Load a model file to inspect groups and tensors</small>
+                </div>
               </div>
-            ))}
-          </section>
+              <section className="inspector-card inspector-empty">
+                <div className="panel-title">
+                  <span>Metadata</span>
+                  <Link2 size={14} />
+                </div>
+                <p>No parsed model data yet.</p>
+              </section>
+            </>
+          )}
         </aside>
       </section>
     </main>
