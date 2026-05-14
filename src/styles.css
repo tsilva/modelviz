@@ -39,6 +39,16 @@ button {
   grid-template-rows: 64px 1fr;
 }
 
+.app-fallback {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--text);
+  background: var(--bg);
+  font-weight: 800;
+}
+
 .topbar {
   display: grid;
   grid-template-columns: 244px auto minmax(260px, 1fr) auto auto;
