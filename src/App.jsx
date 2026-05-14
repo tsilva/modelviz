@@ -826,51 +826,85 @@ function createRawCanvas(nodes) {
 }
 
 function CleanGraph({ groups, edges, selectedGroupId, onSelect }) {
-  const graphRef = useRef(null);
-  const graphSize = useElementSize(graphRef);
-  const layoutById = useMemo(() => createCleanLayout(groups), [groups]);
-  const pointsById = useMemo(() => createCleanPoints(layoutById, graphSize), [layoutById, graphSize]);
-  const hasMeasuredGraph = graphSize.width > 0 && graphSize.height > 0;
+  const viewportRef = useRef(null);
+  const panRef = useRef(null);
+  const viewportSize = useElementSize(viewportRef);
+  const layout = useMemo(() => createCleanLayout(groups, viewportSize), [groups, viewportSize]);
+  const hasMeasuredGraph = viewportSize.width > 0 && viewportSize.height > 0;
+
+  const startPan = (event) => {
+    if (!viewportRef.current) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    panRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      left: viewportRef.current.scrollLeft,
+      top: viewportRef.current.scrollTop
+    };
+    event.currentTarget.classList.add("panning");
+  };
+
+  const movePan = (event) => {
+    if (!panRef.current || !viewportRef.current) return;
+    viewportRef.current.scrollLeft = panRef.current.left - (event.clientX - panRef.current.x);
+    viewportRef.current.scrollTop = panRef.current.top - (event.clientY - panRef.current.y);
+  };
+
+  const stopPan = (event) => {
+    panRef.current = null;
+    event.currentTarget.classList.remove("panning");
+  };
 
   return (
-    <div ref={graphRef} className="clean-graph">
-      {hasMeasuredGraph && (
-      <svg viewBox={`0 0 ${graphSize.width} ${graphSize.height}`} className="edges" aria-hidden="true">
-        <defs>
-          <marker id="clean-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto" markerUnits="strokeWidth">
-            <path d="M 0 0 L 10 5 L 0 10 z" />
-          </marker>
-        </defs>
-        {edges.map(([from, to]) => {
-          const a = pointsById[from];
-          const b = pointsById[to];
-          if (!a || !b) return null;
-          return <path key={`${from}-${to}`} d={createCleanEdgePath(a, b)} markerEnd="url(#clean-arrow)" />;
-        })}
-      </svg>
-      )}
-      {groups.map((group) => {
-        const layout = layoutById[group.id];
-        const point = pointsById[group.id];
-        const [color, soft] = groupColors[group.kind] ?? groupColors.input;
-        return (
-          <button
-            key={group.id}
-            className={`clean-node ${selectedGroupId === group.id ? "selected" : ""}`}
-            style={{
-              left: point ? `${point.x}px` : `clamp(78px, ${layout.x}%, calc(100% - 78px))`,
-              top: point ? `${point.y}px` : `clamp(50px, ${layout.y}%, calc(100% - 50px))`,
-              "--group": color,
-              "--group-soft": soft
-            }}
-            onClick={() => onSelect(group.id)}
-          >
-            <span>{group.kind}</span>
-            <strong>{group.label}</strong>
-            <em>{group.confidence}% · {group.rawNodeCount} raw</em>
-          </button>
-        );
-      })}
+    <div className="clean-graph">
+      <div
+        ref={viewportRef}
+        className="clean-graph-viewport"
+        onPointerDown={startPan}
+        onPointerMove={movePan}
+        onPointerUp={stopPan}
+        onPointerCancel={stopPan}
+        onPointerLeave={stopPan}
+      >
+        <div className="clean-graph-canvas" style={{ width: `${layout.canvas.width}px`, height: `${layout.canvas.height}px` }}>
+          {hasMeasuredGraph && (
+            <svg viewBox={`0 0 ${layout.canvas.width} ${layout.canvas.height}`} className="edges" aria-hidden="true">
+              <defs>
+                <marker id="clean-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto" markerUnits="strokeWidth">
+                  <path d="M 0 0 L 10 5 L 0 10 z" />
+                </marker>
+              </defs>
+              {edges.map(([from, to]) => {
+                const a = layout.points[from];
+                const b = layout.points[to];
+                if (!a || !b) return null;
+                return <path key={`${from}-${to}`} d={createCleanEdgePath(a, b)} markerEnd="url(#clean-arrow)" />;
+              })}
+            </svg>
+          )}
+          {groups.map((group) => {
+            const point = layout.points[group.id];
+            const [color, soft] = groupColors[group.kind] ?? groupColors.input;
+            return (
+              <button
+                key={group.id}
+                className={`clean-node ${selectedGroupId === group.id ? "selected" : ""}`}
+                style={{
+                  left: point ? `${point.x}px` : "50%",
+                  top: point ? `${point.y}px` : "50%",
+                  "--group": color,
+                  "--group-soft": soft
+                }}
+                onClick={() => onSelect(group.id)}
+              >
+                <span>{group.kind}</span>
+                <strong>{group.label}</strong>
+                <em>{group.confidence}% · {group.rawNodeCount} raw</em>
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -909,36 +943,57 @@ function selectedEdge(source, target) {
   return source.groupId && source.groupId === target.groupId;
 }
 
-function createCleanLayout(groups) {
+function createCleanLayout(groups, viewportSize) {
   const staticLayoutApplies = groups.every((group) => cleanLayout[group.id]);
-  if (staticLayoutApplies) return cleanLayout;
+  if (staticLayoutApplies) return createStaticCleanLayout(groups, viewportSize);
 
-  const columns = groups.length <= 4 ? groups.length : Math.min(4, Math.ceil(Math.sqrt(groups.length)));
+  const nodeWidth = 148;
+  const nodeHeight = 76;
+  const columnGap = 120;
+  const rowGap = 34;
+  const marginX = 64;
+  const marginY = 104;
+  const availableWidth = Math.max(0, viewportSize.width - marginX * 2);
+  const maxColumns = Math.max(1, Math.floor((availableWidth + columnGap) / (nodeWidth + columnGap)));
+  const columns = Math.max(1, Math.min(groups.length, 4, maxColumns));
   const rows = Math.ceil(groups.length / columns);
-
-  return Object.fromEntries(
+  const width = Math.max(viewportSize.width, marginX * 2 + columns * nodeWidth + (columns - 1) * columnGap);
+  const height = Math.max(viewportSize.height, marginY * 2 + rows * nodeHeight + (rows - 1) * rowGap);
+  const points = Object.fromEntries(
     groups.map((group, index) => {
-      const column = index % columns;
       const row = Math.floor(index / columns);
-      const x = 14 + (columns === 1 ? 36 : (column / (columns - 1)) * 72);
-      const y = rows === 1 ? 52 : 33 + (row / Math.max(rows - 1, 1)) * 38;
-      return [group.id, { x, y }];
+      const offset = index % columns;
+      const column = row % 2 === 0 ? offset : columns - 1 - offset;
+      return [
+        group.id,
+        {
+          x: marginX + nodeWidth / 2 + column * (nodeWidth + columnGap),
+          y: marginY + nodeHeight / 2 + row * (nodeHeight + rowGap)
+        }
+      ];
     })
   );
+
+  return { points, canvas: { width, height } };
 }
 
-function createCleanPoints(layoutById, size) {
-  if (!size.width || !size.height) return {};
-
-  return Object.fromEntries(
-    Object.entries(layoutById).map(([id, layout]) => [
-      id,
-      {
-        x: clamp((layout.x / 100) * size.width, 82, size.width - 82),
-        y: clamp((layout.y / 100) * size.height, 54, size.height - 54)
-      }
-    ])
+function createStaticCleanLayout(groups, viewportSize) {
+  const width = Math.max(viewportSize.width, 980);
+  const height = Math.max(viewportSize.height, 540);
+  const points = Object.fromEntries(
+    groups.map((group) => {
+      const layout = cleanLayout[group.id];
+      return [
+        group.id,
+        {
+          x: clamp((layout.x / 100) * width, 82, width - 82),
+          y: clamp((layout.y / 100) * height, 54, height - 54)
+        }
+      ];
+    })
   );
+
+  return { points, canvas: { width, height } };
 }
 
 function useElementSize(ref) {

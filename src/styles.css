@@ -536,7 +536,19 @@ button {
   scrollbar-width: thin;
 }
 
-.raw-graph-viewport.panning {
+.clean-graph-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  scrollbar-color: #94a3b8 #e2e8f0;
+  scrollbar-width: thin;
+}
+
+.raw-graph-viewport.panning,
+.clean-graph-viewport.panning {
   cursor: grabbing;
 }
 
@@ -551,6 +563,12 @@ button {
   top: 0;
   left: 0;
   transform-origin: 0 0;
+}
+
+.clean-graph-canvas {
+  position: relative;
+  min-width: 100%;
+  min-height: 100%;
 }
 
 .raw-edges {
