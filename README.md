@@ -37,6 +37,14 @@ pnpm preview  # preview the production bundle locally
 - If `MODELVIZ_MODEL_PATH` is not set, the dev server looks for `~/Desktop/mnist_mlp_best_seed1.onnx`.
 - The package is marked `private` and does not declare a license.
 
+## Local credentials
+
+Private local values declared in `.keyenv.toml` live in macOS Keychain. Run
+`keyenv doctor` to verify them and launch credential-dependent commands with
+`keyenv run -- <command>`. Python, Node, and their child processes receive the
+values through their normal environment APIs. Keep only public or non-secret
+configuration in dotenv files.
+
 ## Architecture
 
 ![ModelViz architecture diagram](./architecture.png)
