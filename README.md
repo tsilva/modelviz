@@ -13,7 +13,7 @@ Use it to open an ONNX file from disk or the web, compare raw nodes with inferre
 ```bash
 git clone git@github.com:tsilva/modelviz.git
 cd modelviz
-pnpm install
+pnpm install --frozen-lockfile
 pnpm dev
 ```
 
@@ -23,6 +23,8 @@ Open the local Vite URL printed by the dev server, usually [http://127.0.0.1:517
 
 ```bash
 pnpm dev      # start the local Vite dev server
+pnpm audit --audit-level low  # audit the complete dependency graph
+pnpm test     # run dependency security regressions
 pnpm build    # build the production bundle
 pnpm preview  # preview the production bundle locally
 ```
