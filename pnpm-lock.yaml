@@ -12,8 +12,8 @@ importers:
         specifier: 10.69.0
         version: 10.69.0(react@18.3.1)
       '@vercel/analytics':
-        specifier: 1.6.1
-        version: 1.6.1(react@18.3.1)
+        specifier: 2.0.1
+        version: 2.0.1(react@18.3.1)
       lucide-react:
         specifier: 0.468.0
         version: 0.468.0(react@18.3.1)
@@ -534,12 +534,13 @@ packages:
   '@types/estree@1.0.9':
     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
 
-  '@vercel/analytics@1.6.1':
-    resolution: {integrity: sha512-oH9He/bEM+6oKlv3chWuOOcp8Y6fo6/PSro8hEkgCW3pu9/OiCXiUpRUogDh3Fs3LH2sosDrx8CxeOLBEE+afg==}
+  '@vercel/analytics@2.0.1':
+    resolution: {integrity: sha512-MTQG6V9qQrt1tsDeF+2Uoo5aPjqbVPys1xvnIftXSJYG2SrwXRHnqEvVoYID7BTruDz4lCd2Z7rM1BdkUehk2g==}
     peerDependencies:
       '@remix-run/react': ^2
       '@sveltejs/kit': ^1 || ^2
       next: '>= 13'
+      nuxt: '>= 3'
       react: ^18 || ^19 || ^19.0.0-rc
       svelte: '>= 4'
       vue: ^3
@@ -550,6 +551,8 @@ packages:
       '@sveltejs/kit':
         optional: true
       next:
+        optional: true
+      nuxt:
         optional: true
       react:
         optional: true
@@ -1229,7 +1232,7 @@ snapshots:
 
   '@types/estree@1.0.9': {}
 
-  '@vercel/analytics@1.6.1(react@18.3.1)':
+  '@vercel/analytics@2.0.1(react@18.3.1)':
     optionalDependencies:
       react: 18.3.1
 
