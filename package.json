@@ -11,7 +11,7 @@
     "test": "node --test scripts/dependency-security.test.mjs"
   },
   "dependencies": {
-    "@sentry/react": "10.69.0",
+    "@sentry/react": "10.70.0",
     "@vercel/analytics": "1.6.1",
     "lucide-react": "0.468.0",
     "react": "18.3.1",
