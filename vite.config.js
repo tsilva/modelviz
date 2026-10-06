@@ -15,6 +15,8 @@ function resolveModelPath() {
 }
 
 function getGitSha() {
+  const hosted = process.env.VERCEL_GIT_COMMIT_SHA?.trim() || process.env.GITHUB_SHA?.trim();
+  if (hosted) return hosted.slice(0, 7);
   try {
     return execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
   } catch {
@@ -54,7 +56,9 @@ function localModelEndpoint() {
 export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const releaseName = env.SENTRY_RELEASE || env.VITE_SENTRY_RELEASE || getGitSha();
-  const hasSentryUploadConfig = env.SENTRY_AUTH_TOKEN && env.SENTRY_ORG && env.SENTRY_PROJECT;
+  const sentryOrg = env.SENTRY_ORG || "tsilva";
+  const sentryProject = env.SENTRY_PROJECT || "modelviz";
+  const hasSentryUploadConfig = Boolean(env.SENTRY_AUTH_TOKEN);
 
   return {
     define: {
@@ -69,8 +73,8 @@ export default defineConfig(({ command, mode }) => {
         hasSentryUploadConfig &&
         sentryVitePlugin({
           authToken: env.SENTRY_AUTH_TOKEN,
-          org: env.SENTRY_ORG,
-          project: env.SENTRY_PROJECT,
+          org: sentryOrg,
+          project: sentryProject,
           telemetry: false,
           release: {
             name: releaseName,

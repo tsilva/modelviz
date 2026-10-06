@@ -5,10 +5,16 @@
   "type": "module",
   "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "dev": "node scripts/dev-server.mjs vite --host 127.0.0.1",
+    "dev": "python3 scripts/infisical/run.py dev",
     "build": "vite build",
     "preview": "node scripts/dev-server.mjs vite preview --host 127.0.0.1",
-    "test": "node --test scripts/dependency-security.test.mjs"
+    "test": "node --test scripts/dependency-security.test.mjs",
+    "dev:app": "node scripts/dev-server.mjs vite --host 127.0.0.1",
+    "build:secrets": "python3 scripts/infisical/run.py build",
+    "secrets:check": "python3 scripts/infisical/run.py check",
+    "secrets:migrate:keyenv": "python3 scripts/infisical/migrate_keyenv.py",
+    "test:secrets": "python3 -m unittest discover -s scripts/infisical -p test_secrets.py",
+    "secrets:sync:production": "python3 scripts/infisical/sync_production.py"
   },
   "dependencies": {
     "@sentry/react": "10.69.0",

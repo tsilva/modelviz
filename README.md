@@ -14,7 +14,7 @@ Use it to open an ONNX file from disk or the web, compare raw nodes with inferre
 git clone git@github.com:tsilva/modelviz.git
 cd modelviz
 pnpm install --frozen-lockfile
-pnpm dev
+pnpm dev --port auto
 ```
 
 Open the local Vite URL printed by the dev server, usually [http://127.0.0.1:5173](http://127.0.0.1:5173).
@@ -38,14 +38,6 @@ pnpm preview  # preview the production bundle locally
 - Set `MODELVIZ_MODEL_PATH=/path/to/model.onnx` to choose the file served by that endpoint.
 - If `MODELVIZ_MODEL_PATH` is not set, the dev server looks for `~/Desktop/mnist_mlp_best_seed1.onnx`.
 - The package is marked `private` and does not declare a license.
-
-## Local credentials
-
-Private local values declared in `.keyenv.toml` live in macOS Keychain. Run
-`keyenv doctor` to verify them and launch credential-dependent commands with
-`keyenv run -- <command>`. Python, Node, and their child processes receive the
-values through their normal environment APIs. Keep only public or non-secret
-configuration in dotenv files.
 
 ## Architecture
 
