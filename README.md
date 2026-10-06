@@ -46,3 +46,5 @@ pnpm preview  # preview the production bundle locally
 ## License
 
 No license file is currently included.
+
+Production delivery runs on pushes to `main` and supports manual secret rotations. See [production delivery](docs/production-delivery.md) for destinations, access boundaries and failure behavior.

@@ -1,0 +1,11 @@
+{
+  "repository": "tsilva/modelviz",
+  "githubRepositoryId": 1238743750,
+  "identityId": "672c01c3-c025-40f9-b89b-5abcc03e8261",
+  "infisicalProjectId": "362c6be8-ba92-4bdb-92ab-4305314517eb",
+  "secretName": "SENTRY_AUTH_TOKEN",
+  "destination": "vercel",
+  "vercelProjectId": "prj_Sy4GGWi85T3HvrFY4f2I6NyQ1Bia",
+  "vercelProjectName": "modelviz",
+  "vercelTeamId": "team_eE2Iv7IMqPOx8ZVN2xNfR2f0"
+}
