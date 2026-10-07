@@ -33,7 +33,11 @@ pnpm preview  # preview the production bundle locally
 
 ## Notes
 
-- ModelViz starts with an empty state and prompts you to open an ONNX file.
+- ModelViz automatically loads the DistilGPT2 example on startup, with download
+  progress and browser-side parsing. It uses the pinned FP16 decoder export from
+  [Xenova/distilgpt2](https://huggingface.co/Xenova/distilgpt2/blob/a41c10485c18a64b6606729b6a082330cbd8f49e/onnx/decoder_model_fp16.onnx)
+  (about 158 MiB). Cancel loading to open your own file; the welcome screen lets
+  you reload the example if the download fails or is canceled.
 - Uploaded files are parsed in the browser with the local ONNX protobuf parser.
 - The web model browser searches Hugging Face ONNX model files and estimates browser parsing fit from file size, device memory, and CPU thread count before loading.
 - The dev server still exposes `/api/model/default` for local experiments.

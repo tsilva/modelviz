@@ -1,19 +1,27 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CircuitBoard, DownloadCloud, ExternalLink, FileUp, Globe2, Search, ShieldCheck, X } from "lucide-react";
 import MappingWorkspace from "./components/MappingWorkspace.jsx";
 import { createEmptyModelView, createModelViewFromOnnx } from "./lib/modelView.js";
 import { parseOnnxModel } from "./lib/onnxParser.js";
+import { DEFAULT_MODEL } from "./lib/defaultModel.js";
 import { assessRemoteModelFit, createRemoteModelFromUrl, formatBytes, getBrowserFitContext, searchWebOnnxModels } from "./lib/webModelBrowser.js";
+const initialLoadProgress = remoteModel => ({
+  state: "loading",
+  title: `Loading ${remoteModel.name}`,
+  detail: remoteModel.artifactPath,
+  loadedBytes: 0,
+  totalBytes: remoteModel.sizeBytes ?? remoteModel.estimatedBytes ?? null
+});
 function App() {
   const [query, setQuery] = useState("");
   const [modelView, setModelView] = useState(() => createEmptyModelView());
   const [modelRevision, setModelRevision] = useState(0);
   const [loadStatus, setLoadStatus] = useState({
-    state: "idle",
-    message: "Load an ONNX model file to begin"
+    state: "loading",
+    message: "Loading DistilGPT2"
   });
-  const [loadProgress, setLoadProgress] = useState(null);
-  const [webQuery, setWebQuery] = useState("mnist onnx");
+  const [loadProgress, setLoadProgress] = useState(() => initialLoadProgress(DEFAULT_MODEL));
+  const [webQuery, setWebQuery] = useState("distilgpt2");
   const [webResults, setWebResults] = useState([]);
   const [webStatus, setWebStatus] = useState({
     state: "idle",
@@ -25,6 +33,7 @@ function App() {
   const [browserFitFilter, setBrowserFitFilter] = useState("all");
   const inputRef = useRef(null);
   const webSearchAbortRef = useRef(null);
+  const modelLoadAbortRef = useRef(null);
   const hasModel = Boolean(modelView.model.fileName);
   const fitContext = useMemo(() => getBrowserFitContext(), []);
   const remoteModels = useMemo(() => {
@@ -51,6 +60,8 @@ function App() {
   const openFile = async event => {
     const [file] = event.target.files ?? [];
     if (!file) return;
+    modelLoadAbortRef.current?.abort();
+    setLoadProgress(null);
     setLoadStatus({
       state: "loading",
       message: `Loading ${file.name}`
@@ -133,25 +144,23 @@ function App() {
     }
   };
   const loadRemoteModel = async remoteModel => {
+    modelLoadAbortRef.current?.abort();
+    const controller = new AbortController();
+    modelLoadAbortRef.current = controller;
     setModelBrowserOpen(false);
     setLoadStatus({
       state: "loading",
       message: `Downloading ${remoteModel.artifactPath}`
     });
-    setLoadProgress({
-      state: "loading",
-      title: `Loading ${remoteModel.name}`,
-      detail: remoteModel.artifactPath,
-      loadedBytes: 0,
-      totalBytes: remoteModel.sizeBytes ?? remoteModel.estimatedBytes ?? null
-    });
+    setLoadProgress(initialLoadProgress(remoteModel));
     try {
-      const response = await fetch(remoteModel.downloadUrl);
+      const response = await fetch(remoteModel.downloadUrl, { signal: controller.signal });
       if (!response.ok) throw new Error(`Remote model download failed (${response.status})`);
       const totalBytes = readContentLength(response) ?? remoteModel.sizeBytes ?? remoteModel.estimatedBytes ?? null;
       const buffer = await readResponseBuffer(response, {
         totalBytes,
         onProgress: loadedBytes => {
+          if (controller.signal.aborted) return;
           setLoadProgress({
             state: "loading",
             title: `Loading ${remoteModel.name}`,
@@ -161,6 +170,7 @@ function App() {
           });
         }
       });
+      if (controller.signal.aborted) return;
       setLoadProgress({
         state: "loading",
         title: `Parsing ${remoteModel.name}`,
@@ -169,21 +179,22 @@ function App() {
         totalBytes: totalBytes ?? buffer.byteLength
       });
       await loadModelBuffer({
-        fileName: remoteModel.artifactPath.split("/").pop() || remoteModel.name || "model.onnx",
+        fileName: remoteModel.fileName || remoteModel.artifactPath.split("/").pop() || remoteModel.name || "model.onnx",
         sourcePath: remoteModel.downloadUrl,
         buffer
       });
-      setWebStatus({
+      if (remoteModel !== DEFAULT_MODEL) setWebStatus({
         state: "ready",
         message: `Loaded ${remoteModel.modelId}`
       });
       setLoadProgress(null);
     } catch (error) {
+      if (controller.signal.aborted) return;
       setLoadStatus({
         state: "error",
         message: error.message
       });
-      setWebStatus({
+      if (remoteModel !== DEFAULT_MODEL) setWebStatus({
         state: "error",
         message: error.message
       });
@@ -194,8 +205,19 @@ function App() {
         loadedBytes: 0,
         totalBytes: null
       });
+    } finally {
+      if (modelLoadAbortRef.current === controller) modelLoadAbortRef.current = null;
     }
   };
+  const dismissModelLoad = () => {
+    modelLoadAbortRef.current?.abort();
+    setLoadProgress(null);
+    setLoadStatus({ state: hasModel ? "ready" : "idle", message: hasModel ? modelView.loadMessage : "Open an ONNX model or reload the example" });
+  };
+  useEffect(() => {
+    loadRemoteModel(DEFAULT_MODEL);
+    return () => modelLoadAbortRef.current?.abort();
+  }, []);
   return <main className="app-shell">
       <header className="topbar">
         <div className="brand">
@@ -229,10 +251,11 @@ function App() {
         <h1>See how your model fits together.</h1>
         <p>Open an ONNX model to explore its architecture and trace each block to the operators behind it.</p>
         <div className="empty-actions"><button className="primary" onClick={() => inputRef.current?.click()}><FileUp size={16} /> Open ONNX</button><button className="secondary-topbar" onClick={openModelBrowser}><Globe2 size={16} /> Browse web</button></div>
+        <button className="text-action" onClick={() => loadRemoteModel(DEFAULT_MODEL)}>Load the DistilGPT2 example</button>
         <span className="welcome-privacy"><ShieldCheck size={14} /> Your model is parsed in this browser.</span>
       </section>}
       {modelBrowserOpen && <ModelBrowserModal browserFitFilter={browserFitFilter} browserSort={browserSort} fitContext={fitContext} models={remoteModels} onClose={() => setModelBrowserOpen(false)} onFitFilterChange={setBrowserFitFilter} onLoadRemoteModel={loadRemoteModel} onSearch={searchWebModels} onSortChange={setBrowserSort} status={webStatus} query={webQuery} onQueryChange={setWebQuery} />}
-      {loadProgress && <LoadingProgressModal progress={loadProgress} onClose={() => setLoadProgress(null)} />}
+      {loadProgress && <LoadingProgressModal progress={loadProgress} onClose={dismissModelLoad} />}
     </main>;
 }
 async function readResponseBuffer(response, {
@@ -278,6 +301,7 @@ function LoadingProgressModal({
   const hasTotal = Number.isFinite(totalBytes) && totalBytes > 0;
   const percent = hasTotal ? Math.min(100, Math.round(loadedBytes / totalBytes * 100)) : null;
   const isError = progress.state === "error";
+  const loadedLabel = loadedBytes === 0 ? "0 B" : formatBytes(loadedBytes);
   return <div className="loading-modal-backdrop" role="presentation">
       <section className={`loading-modal ${progress.state}`} role="dialog" aria-modal="true" aria-labelledby="loading-modal-title">
         <header>
@@ -288,9 +312,9 @@ function LoadingProgressModal({
             <h2 id="loading-modal-title">{progress.title}</h2>
             <p>{progress.detail}</p>
           </div>
-          {isError && <button className="icon-button" onClick={onClose} aria-label="Dismiss load error">
+          <button className="icon-button" onClick={onClose} aria-label={isError ? "Dismiss load error" : "Cancel model load"}>
               <X size={20} />
-            </button>}
+            </button>
         </header>
         <div className="progress-track" aria-label="Model loading progress">
           <span className={hasTotal ? "" : "indeterminate"} style={hasTotal ? {
@@ -299,7 +323,7 @@ function LoadingProgressModal({
         </div>
         <div className="loading-modal-meta">
           <span>{hasTotal ? `${percent}%` : "Downloading"}</span>
-          <span>{hasTotal ? `${formatBytes(loadedBytes)} / ${formatBytes(totalBytes)}` : formatBytes(loadedBytes)}</span>
+          <span>{hasTotal ? `${loadedLabel} / ${formatBytes(totalBytes)}` : loadedLabel}</span>
         </div>
       </section>
     </div>;
