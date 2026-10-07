@@ -1,8 +1,10 @@
-<div align="center">
+<p align="center">
   <img src="./public/brand/logo/logo-1024.png" alt="ModelViz" width="360" />
-
-  **🔎 Turn raw ONNX graphs into clean model views 🔎**
-</div>
+  <br />
+  <!-- repo-tagline:start -->
+  <strong>🔎 Turn raw ONNX graphs into clean model views 🔎</strong>
+  <!-- repo-tagline:end -->
+</p>
 
 ModelViz is a local React app for inspecting ONNX model structure. It parses model bytes in the browser, groups raw operators into semantic architecture blocks, and shows the raw graph beside a cleaner model-level view.
 
