@@ -32,40 +32,62 @@ class ProtoReader {
   tag() {
     const offset = this.pos;
     const value = this.varint();
-    const tag = { field: value >> 3, wire: value & 7, offset };
+    if (!Number.isSafeInteger(value) || value < 8 || value > 0xffffffff) {
+      throw new Error(`Invalid protobuf tag at byte ${offset}`);
+    }
+    const tag = { field: Math.floor(value / 8), wire: value & 7, offset };
     this.lastTag = tag;
     return tag;
   }
 
   varint() {
     let value = 0;
-    let shift = 0;
-
-    while (this.pos < this.end) {
+    for (let index = 0; index < 10; index += 1) {
+      if (this.eof()) throw new Error("Unexpected end of protobuf varint");
       const byte = this.bytes[this.pos++];
-      value += (byte & 0x7f) * 2 ** shift;
+      if (index === 9 && byte > 1) throw new Error("Invalid protobuf varint");
+      value += (byte & 0x7f) * 2 ** (index * 7);
       if ((byte & 0x80) === 0) return value;
-      shift += 7;
     }
+    throw new Error("Invalid protobuf varint");
+  }
 
-    throw new Error("Unexpected end of protobuf varint");
+  signedVarint() {
+    let value = 0n;
+    for (let index = 0; index < 10; index += 1) {
+      if (this.eof()) throw new Error("Unexpected end of protobuf varint");
+      const byte = this.bytes[this.pos++];
+      if (index === 9 && byte > 1) throw new Error("Invalid signed protobuf integer");
+      value |= BigInt(byte & 0x7f) << BigInt(index * 7);
+      if ((byte & 0x80) === 0) return Number(BigInt.asIntN(64, value));
+    }
+    throw new Error("Invalid signed protobuf integer");
   }
 
   fixed32() {
+    this.requireBytes(4);
     const value = this.view.getUint32(this.pos, true);
     this.pos += 4;
     return value;
   }
 
   float32() {
+    this.requireBytes(4);
     const value = this.view.getFloat32(this.pos, true);
     this.pos += 4;
     return value;
   }
 
+  requireBytes(length) {
+    if (!Number.isSafeInteger(length) || length < 0 || length > this.end - this.pos) {
+      throw new Error(`Truncated protobuf field at byte ${this.pos}`);
+    }
+  }
+
   bytesField() {
     const length = this.varint();
     const start = this.pos;
+    this.requireBytes(length);
     this.pos += length;
     return this.bytes.subarray(start, start + length);
   }
@@ -94,32 +116,37 @@ class ProtoReader {
     }
 
     if (wire === 1) {
+      this.requireBytes(8);
       this.pos += 8;
       return;
     }
 
     if (wire === 2) {
-      const length = this.varint();
-      this.pos += length;
+      this.bytesField();
       return;
     }
 
     if (wire === 5) {
+      this.requireBytes(4);
       this.pos += 4;
       return;
     }
 
     if (wire === 3) {
+      const field = this.lastTag.field;
       while (!this.eof()) {
         const nested = this.tag();
-        if (nested.wire === 4) return;
+        if (nested.wire === 4) {
+          if (nested.field !== field) throw new Error("Invalid protobuf group end tag");
+          return;
+        }
         this.skip(nested.wire);
       }
-      return;
+      throw new Error("Truncated protobuf group");
     }
 
     if (wire === 4) {
-      return;
+      throw new Error("Unexpected protobuf group end tag");
     }
 
     throw new Error(`Unsupported protobuf wire type ${wire} at byte ${this.lastTag?.offset ?? this.pos} after field ${this.lastTag?.field ?? "?"}`);
@@ -128,6 +155,7 @@ class ProtoReader {
 
 export function parseOnnxModel(buffer) {
   const reader = new ProtoReader(buffer);
+  let hasGraph = false;
   const model = {
     irVersion: null,
     producerName: "",
@@ -142,11 +170,12 @@ export function parseOnnxModel(buffer) {
     if (field === 1 && wire === 0) model.irVersion = reader.varint();
     else if (field === 2 && wire === 2) model.producerName = reader.string();
     else if (field === 3 && wire === 2) model.producerVersion = reader.string();
-    else if (field === 7 && wire === 2) model.graph = reader.message(parseGraph);
+    else if (field === 7 && wire === 2) { model.graph = reader.message(parseGraph); hasGraph = true; }
     else if (field === 8 && wire === 2) model.opsets.push(reader.message(parseOpset));
     else reader.skip(wire);
   }
 
+  if (!hasGraph) throw new Error("The file does not contain an ONNX graph");
   return model;
 }
 
@@ -164,7 +193,7 @@ function parseOpset(reader) {
 }
 
 function parseGraph(reader) {
-  const graph = { name: "", nodes: [], inputs: [], outputs: [], initializers: [] };
+  const graph = { name: "", nodes: [], inputs: [], outputs: [], initializers: [], valueInfo: [] };
   let initializerIndex = 0;
 
   while (!reader.eof()) {
@@ -181,6 +210,7 @@ function parseGraph(reader) {
       }
     } else if (field === 11 && wire === 2) graph.inputs.push(reader.message(parseValueInfo));
     else if (field === 12 && wire === 2) graph.outputs.push(reader.message(parseValueInfo));
+    else if (field === 13 && wire === 2) graph.valueInfo.push(reader.message(parseValueInfo));
     else reader.skip(wire);
   }
 
@@ -210,12 +240,21 @@ function parseAttribute(reader) {
   while (!reader.eof()) {
     const { field, wire } = reader.tag();
     if (field === 1 && wire === 2) attribute.name = reader.string();
-    else if (field === 4 && wire === 0) attribute.type = reader.varint();
-    else if (field === 5 && wire === 5) attribute.value = Number(reader.float32().toPrecision(6));
-    else if (field === 6 && wire === 0) attribute.value = reader.varint();
-    else if (field === 7 && wire === 2) attribute.value = textDecoder.decode(reader.bytesField());
-    else if (field === 10 && wire === 2) attribute.value = readPackedFloat32(reader.bytesField());
-    else if (field === 11 && wire === 2) attribute.value = reader.packedVarints();
+    else if (field === 20 && wire === 0) attribute.type = reader.varint();
+    else if (field === 2 && wire === 5) attribute.value = Number(reader.float32().toPrecision(6));
+    else if (field === 3 && wire === 0) attribute.value = reader.signedVarint();
+    else if (field === 4 && wire === 2) attribute.value = textDecoder.decode(reader.bytesField());
+    else if (field === 5 && wire === 2) attribute.value = reader.message(parseTensor);
+    else if (field === 6 && wire === 2) attribute.value = reader.message(parseGraph);
+    else if (field === 7 && wire === 2) attribute.value = (attribute.value ?? []).concat(readPackedFloat32(reader.bytesField()));
+    else if (field === 7 && wire === 5) attribute.value = [...(attribute.value ?? []), reader.float32()];
+    else if (field === 8 && wire === 2) {
+      const nested = new ProtoReader(reader.bytesField());
+      attribute.value ??= [];
+      while (!nested.eof()) attribute.value.push(nested.signedVarint());
+    }
+    else if (field === 8 && wire === 0) attribute.value = [...(attribute.value ?? []), reader.signedVarint()];
+    else if (field === 9 && wire === 2) attribute.value = [...(attribute.value ?? []), reader.string()];
     else reader.skip(wire);
   }
 
@@ -232,19 +271,28 @@ function parseTensor(reader) {
     else if (field === 1 && wire === 2) tensor.dims.push(...reader.packedVarints());
     else if (field === 2 && wire === 0) tensor.dataType = TENSOR_TYPES[reader.varint()] ?? "unknown";
     else if (field === 8 && wire === 2) tensor.name = reader.string();
-    else if (field === 9 && wire === 2) tensor.byteSize += reader.bytesField().byteLength;
-    else if ((field === 4 || field === 6 || field === 7) && wire === 2) tensor.byteSize += reader.bytesField().byteLength;
-    else {
-      if (wire === 5) tensor.byteSize += 4;
+    else if ([4, 5, 6, 7, 9, 10, 11].includes(field) && wire === 2) {
+      const bytes = reader.bytesField();
+      if (field === 4) requireCompleteElements(bytes, 4);
+      else if (field === 10) requireCompleteElements(bytes, 8);
+      else if (field === 5 || field === 7 || field === 11) {
+        const packed = new ProtoReader(bytes);
+        while (!packed.eof()) packed.varint();
+      }
+      // Count serialized data payload, excluding field tags and length prefixes.
+      tensor.byteSize += bytes.byteLength;
+    } else if ((field === 4 && wire === 5) || (field === 10 && wire === 1) || ((field === 5 || field === 7 || field === 11) && wire === 0)) {
+      const start = reader.pos;
       reader.skip(wire);
-    }
+      tensor.byteSize += reader.pos - start;
+    } else reader.skip(wire);
   }
 
   return tensor;
 }
 
 function parseValueInfo(reader) {
-  const value = { name: "", type: "tensor", dataType: "unknown", shape: [] };
+  const value = { name: "", type: "tensor", dataType: "unknown", shape: null };
 
   while (!reader.eof()) {
     const { field, wire } = reader.tag();
@@ -257,7 +305,7 @@ function parseValueInfo(reader) {
 }
 
 function parseType(reader) {
-  const type = { type: "tensor", dataType: "unknown", shape: [] };
+  const type = { type: "tensor", dataType: "unknown", shape: null };
 
   while (!reader.eof()) {
     const { field, wire } = reader.tag();
@@ -269,7 +317,7 @@ function parseType(reader) {
 }
 
 function parseTensorType(reader) {
-  const tensorType = { type: "tensor", dataType: "unknown", shape: [] };
+  const tensorType = { type: "tensor", dataType: "unknown", shape: null };
 
   while (!reader.eof()) {
     const { field, wire } = reader.tag();
@@ -307,10 +355,15 @@ function parseDimension(reader) {
 }
 
 function readPackedFloat32(bytes) {
+  requireCompleteElements(bytes, 4);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const values = [];
   for (let offset = 0; offset + 4 <= bytes.byteLength; offset += 4) {
     values.push(Number(view.getFloat32(offset, true).toPrecision(6)));
   }
   return values;
+}
+
+function requireCompleteElements(bytes, width) {
+  if (bytes.byteLength % width !== 0) throw new Error("Truncated packed protobuf field");
 }

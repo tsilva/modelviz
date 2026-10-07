@@ -70,6 +70,7 @@ export function createModelViewFromOnnx(fileName, parsed, sourcePath = "") {
       id: `node_${index}_${safeId(node.name || node.opType || "op")}`,
       name: node.name || `${node.opType || "Op"} ${index + 1}`,
       opType: node.opType || "Unknown",
+      domain: node.domain || "",
       groupHint: kind,
       groupId: `op_${index}`,
       groupLabel: formatGroupLabel(node, index, ops.length, kind),
@@ -118,7 +119,8 @@ export function createModelViewFromOnnx(fileName, parsed, sourcePath = "") {
   return {
     model,
     rawNodes: laidOut,
-    tensors: createTensorRows(graphInputs, graphOutputs, initializers),
+    tensors: createTensorRows(graphInputs, graphOutputs, initializers, graph.valueInfo ?? []),
+    initializers,
     modelProfiles: inferProfiles(model.family, opCounts),
     sourcePath,
     loadMessage: `${ops.length} ONNX ops parsed`
@@ -179,7 +181,7 @@ function layoutRawNodes(nodes) {
   });
 }
 
-function createTensorRows(inputs, outputs, initializers) {
+function createTensorRows(inputs, outputs, initializers, valueInfo) {
   const rows = [];
 
   inputs.forEach((input) => {
@@ -190,8 +192,12 @@ function createTensorRows(inputs, outputs, initializers) {
     rows.push([output.name, output.dataType, formatShape(output.shape), "output", "dynamic"]);
   });
 
-  initializers.slice(0, 12).forEach((tensor) => {
+  initializers.forEach((tensor) => {
     rows.push([tensor.name, tensor.dataType, formatShape(tensor.dims), "initializer", formatBytes(tensor.byteSize)]);
+  });
+
+  valueInfo.forEach((value) => {
+    rows.push([value.name, value.dataType, formatShape(value.shape), "intermediate", "from file"]);
   });
 
   return rows;
@@ -256,8 +262,8 @@ function countBy(values) {
   }, {});
 }
 
-function formatShape(shape = []) {
-  return shape.length ? shape.join(" x ") : "scalar";
+function formatShape(shape) {
+  return Array.isArray(shape) ? shape.length ? shape.join(" x ") : "scalar" : "not recorded";
 }
 
 function formatBytes(bytes) {

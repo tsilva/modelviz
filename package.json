@@ -8,7 +8,7 @@
     "dev": "python3 scripts/infisical/run.py dev",
     "build": "vite build",
     "preview": "node scripts/dev-server.mjs vite preview --host 127.0.0.1",
-    "test": "node --test scripts/dependency-security.test.mjs",
+    "test": "node --test scripts/*.test.mjs",
     "dev:app": "node scripts/dev-server.mjs vite --host 127.0.0.1",
     "build:secrets": "python3 scripts/infisical/run.py build",
     "secrets:check": "python3 scripts/infisical/run.py check",

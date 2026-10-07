@@ -1,280 +1,234 @@
-const opWeights = {
+import { createGraphIndex, deriveGroupEdges, flattenGroups, groupBoundary } from "./graph.js";
+const kinds = {
   Input: "input",
   Output: "output",
-  Constant: "utility",
-  Cast: "utility",
-  Shape: "utility",
-  Gather: "data",
+  Constant: "support",
+  Shape: "support",
+  Cast: "layout",
+  Gather: "embedding",
   Flatten: "layout",
   Reshape: "layout",
   Transpose: "layout",
   Gemm: "dense",
   MatMul: "compute",
-  Add: "compute",
-  Mul: "compute",
+  Conv: "convolution",
   Relu: "activation",
-  Softmax: "attention",
+  Gelu: "activation",
+  Softmax: "activation",
   LayerNormalization: "normalization",
   BatchNormalization: "normalization",
-  Gelu: "activation"
+  Attention: "attention",
+  MultiHeadAttention: "attention"
 };
-
-export function classifyRawNode(node) {
-  return opWeights[node.opType] ?? "other";
-}
-
-export function createArchitectureGroups(nodes, model) {
-  const transformerGroups = createTransformerGroups(nodes, model);
-  if (transformerGroups) return transformerGroups;
-
-  const byHint = nodes.reduce((acc, node) => {
-    const key = node.groupId ?? node.groupHint ?? "unknown";
-    acc[key] = acc[key] ? [...acc[key], node] : [node];
-    return acc;
-  }, {});
-
-  const orderedKeys = Object.keys(byHint);
-
-  const makeGroup = (id, label, kind, raw, metadata, confidence, recognizer) => ({
-    id,
-    label,
-    kind,
-    rawNodeIds: raw.map((node) => node.id),
-    rawNodeCount: raw.length,
-    inputs: [...new Set(raw.flatMap((node) => node.inputs ?? []))].slice(0, 4),
-    outputs: [...new Set(raw.flatMap((node) => node.outputs ?? []))].slice(-4),
-    metadata,
-    confidence,
-    recognizer
-  });
-
-  if (model.family !== "GPT-2") {
-    return orderedKeys.map((key, index) => {
-      const raw = byHint[key];
-      const first = raw[0] ?? {};
-      const kind = first.groupHint ?? first.opType?.toLowerCase() ?? "unknown";
-      const label = first.groupLabel ?? labelForKind(kind, index);
-      const metadata = first.metadata ?? { opType: first.opType ?? "unknown" };
-      const confidence = confidenceForKind(kind);
-      const recognizer = first.recognizer ?? `onnx.${first.opType ?? kind}`;
-      return makeGroup(key, label, kind, raw, metadata, confidence, recognizer);
-    });
-  }
-
-  const attentionRaw = byHint.attention ?? [];
-  const mlpRaw = [...(byHint.mlp ?? []), ...(byHint.residual ?? []).filter((node) => node.id === "resid2")];
-
-  return [
-    makeGroup("inputs", "Inputs", "input", byHint.input ?? [], { tensors: "input_ids, position_ids, attention_mask" }, 100, "io"),
-    makeGroup("embeddings", "Token + Position Embeddings", "embedding", byHint.embedding ?? [], { vocab: model.vocab, hiddenSize: model.hiddenSize }, 96, "gpt.embedding"),
-    makeGroup("ln1", "LayerNorm h.0/ln_1", "norm", byHint.norm ?? [], { normalizedShape: model.hiddenSize }, 93, "onnx.LayerNormalization"),
-    makeGroup("attn0", "h.0 Self-Attention", "attention", attentionRaw, { hiddenSize: model.hiddenSize, heads: model.heads, headDim: model.hiddenSize / model.heads, qkv: "768 -> 2304", causalMask: true }, 94, "gpt.attention.qkv"),
-    makeGroup("mlp0", "h.0 MLP", "mlp", mlpRaw, { expansion: "4x", activation: "GELU", projection: "768 -> 3072 -> 768" }, 91, "gpt.mlp.gelu"),
-    makeGroup("repeat", "Transformer Blocks h.1-h.10", "repeat", byHint.repeat ?? [], { repeatedBlocks: model.layers - 2, pattern: "LayerNorm + Attention + MLP" }, 87, "namespace.repetition"),
-    makeGroup("head", "Final Norm + LM Head", "head", byHint.head ?? [], { tiedEmbedding: true, logits: `batch x sequence x ${model.vocab}` }, 95, "gpt.lm_head")
-  ];
-}
-
-export function createCleanEdges(groups) {
-  const byId = new Set(groups.map((group) => group.id));
-  if (byId.has("transformer_blocks")) {
-    return [
-      ["inputs", "embeddings"],
-      ["runtime_support", "embeddings"],
-      ["embeddings", "transformer_blocks"],
-      ["runtime_support", "transformer_blocks"],
-      ["transformer_blocks", "final_norm"],
-      ["final_norm", "lm_head"],
-      ["lm_head", "outputs"]
-    ].filter(([from, to]) => byId.has(from) && byId.has(to));
-  }
-
-  if (groups?.length) {
-    return groups.slice(0, -1).map((group, index) => [group.id, groups[index + 1].id]);
-  }
-
-  return [];
-}
-
-export function summarizeCoverage(groups, nodes) {
-  const covered = new Set(groups.flatMap((group) => group.rawNodeIds));
-  const computeNodes = nodes.filter((node) => classifyRawNode(node) !== "utility");
-  const coveredCompute = computeNodes.filter((node) => covered.has(node.id));
-  const denominator = computeNodes.length || 1;
-  const groupCount = groups.length || 1;
-  return {
-    rawNodes: nodes.length,
-    semanticGroups: groups.length,
-    coverage: Math.round((coveredCompute.length / denominator) * 100),
-    averageConfidence: Math.round(groups.reduce((sum, group) => sum + group.confidence, 0) / groupCount)
+const layouts = new Set(["Reshape", "Transpose", "Split", "Squeeze", "Unsqueeze", "Identity", "Cast"]);
+const activations = new Set(["Relu", "Gelu", "Sigmoid", "Tanh", "LeakyRelu"]);
+const standard = node => !node.domain || node.domain === "ai.onnx";
+export const classifyRawNode = node => kinds[node.opType] ?? "compute";
+export function createArchitectureGroups(nodes, model = {}, graphIndex) {
+  const index = graphIndex ?? createGraphIndex(nodes);
+  const assigned = new Set();
+  const groups = [];
+  const make = (id, label, kind, raw, recognition, evidence, children = []) => {
+    const ids = raw.map(node => node.id);
+    return {
+      id,
+      label,
+      kind,
+      rawNodeIds: ids,
+      rawNodeCount: ids.length,
+      ...groupBoundary(ids, index),
+      recognition,
+      evidence,
+      children,
+      metadata: {
+        operators: raw.length,
+        ...Object.fromEntries(raw.length === 1 ? (raw[0].attributes ?? []).filter(a => a.value !== null && typeof a.value !== "object").map(a => [a.name, a.value]) : [])
+      }
+    };
   };
-}
-
-function labelForKind(kind, index) {
-  const labels = {
-    input: "Inputs",
-    output: "Outputs",
-    dense: "Dense Layer",
-    activation: "Activation",
-    layout: "Layout",
-    compute: "Compute"
+  const primitive = node => make(`raw:${node.id}`, node.opType === "Input" || node.opType === "Output" ? node.name : node.opType, classifyRawNode(node), [node], "exact", [`ONNX ${node.domain || "ai.onnx"}::${node.opType}`, node.name]);
+  const add = (label, kind, raw, evidence, recognition = "pattern", roles = {}) => {
+    const unique = [...new Map(raw.map(node => [node.id, node])).values()];
+    if (!unique.length || unique.some(node => assigned.has(node.id))) return false;
+    unique.forEach(node => assigned.add(node.id));
+    const group = make(`group:${unique[0].id}`, label, kind, unique, recognition, evidence, unique.length > 1 ? unique.map(primitive) : []);
+    group.roles = roles;
+    for (const child of group.children) child.role = roles[child.rawNodeIds[0]];
+    groups.push(group);
+    return true;
   };
+  const producer = name => index.byId.get(index.producer.get(name));
+  const successors = node => [...new Set((node.outputs ?? []).flatMap(name => index.consumers.get(name) ?? []))].map(id => index.byId.get(id)).filter(Boolean);
+  const isParameter = name => index.constantValues.has(name);
+  const isProjection = node => standard(node) && ["MatMul", "Gemm"].includes(node.opType) && node.inputs.some(isParameter);
+  const bias = node => standard(node) && node.opType === "Add" && node.inputs.some(isParameter);
 
-  return labels[kind] ?? `Group ${index + 1}`;
-}
-
-function confidenceForKind(kind) {
-  const confidence = {
-    input: 100,
-    output: 100,
-    dense: 92,
-    activation: 94,
-    layout: 90,
-    normalization: 90,
-    convolution: 91,
-    pooling: 88,
-    compute: 78
-  };
-
-  return confidence[kind] ?? 70;
-}
-
-function createTransformerGroups(nodes, model) {
-  const blockIndexes = [...new Set(nodes.map(transformerBlockIndex).filter((index) => index !== null))].sort((a, b) => a - b);
-  const hasTransformerPath = nodes.some((node) => nodeMatches(node, /(?:^|\/)transformer(?:\/|\.|$)/));
-  const hasAttentionOps = nodes.filter((node) => node.opType === "Softmax" || nodeMatches(node, /\/attn\//)).length >= 2;
-
-  if (model.family !== "Attention model" && !blockIndexes.length && !hasTransformerPath && !hasAttentionOps) {
-    return null;
-  }
-
-  const buckets = {
-    inputs: [],
-    embeddings: [],
-    transformer_blocks: [],
-    final_norm: [],
-    lm_head: [],
-    outputs: [],
-    runtime_support: []
-  };
-  const assigned = new Map();
-
-  nodes.forEach((node) => {
-    const bucket = primaryTransformerBucket(node);
-    if (bucket) {
-      buckets[bucket].push(node);
-      assigned.set(node.id, bucket);
+  // Require connected QK -> softmax -> AV dataflow; a Softmax alone is not attention.
+  for (const softmax of nodes.filter(node => standard(node) && node.opType === "Softmax")) {
+    const scoreNodes = [];
+    const visited = new Set();
+    const findScore = (node, depth = 0) => {
+      if (!node || visited.has(node.id) || depth > 8 || !standard(node)) return null;
+      visited.add(node.id);
+      if (node.opType === "MatMul" && !node.inputs.some(isParameter)) return [node];
+      if (!["Add", "Mul", "Div", "Cast", "Reshape", "Transpose", "Where"].includes(node.opType)) return null;
+      for (const input of node.inputs) {
+        const path = findScore(producer(input), depth + 1);
+        if (path) return [node, ...path];
+      }
+      return null;
+    };
+    const path = findScore(producer(softmax.inputs[0]));
+    if (!path) continue;
+    scoreNodes.push(...path);
+    let probability = softmax;
+    const after = [];
+    for (let step = 0; step < 4; step += 1) {
+      const children = successors(probability);
+      if (children.length !== 1 || !standard(children[0]) || !layouts.has(children[0].opType)) break;
+      probability = children[0];
+      after.push(probability);
     }
-  });
-
-  assignSupportNodes(nodes, buckets, assigned);
-
-  const blockRange = formatBlockRange(blockIndexes);
-  const rawBlockNodes = buckets.transformer_blocks;
-  const blockCount = blockIndexes.length || estimateBlockCount(rawBlockNodes);
-  const attentionOps = rawBlockNodes.filter((node) => nodeMatches(node, /\/attn\//) || node.opType === "Softmax").length;
-  const mlpOps = rawBlockNodes.filter((node) => nodeMatches(node, /\/mlp\//) || nodeMatches(node, /c_fc|c_proj|Gelu|Tanh/)).length;
-  const cacheOutputs = nodes.filter((node) => node.opType === "Output" && /^present\.\d+\.(key|value)$/.test(node.name)).length;
-
-  const groups = [
-    makeSemanticGroup("inputs", "Inputs", "input", buckets.inputs, { tensors: inputTensorNames(buckets.inputs) }, 100, "io.inputs"),
-    makeSemanticGroup("embeddings", "Token + Position Embeddings", "embedding", buckets.embeddings, { pattern: "token lookup + position lookup + attention mask", parameters: model.parameterCount }, 94, "transformer.embeddings"),
-    makeSemanticGroup("transformer_blocks", `${blockCount || "Repeated"} Transformer Blocks`, "attention", rawBlockNodes, { blocks: blockRange || String(blockCount || "?"), pattern: "LayerNorm + self-attention + MLP + residual", attentionOps, mlpOps, cacheOutputs }, 94, "transformer.decoder.blocks"),
-    makeSemanticGroup("final_norm", "Final LayerNorm", "norm", buckets.final_norm, { role: "normalize decoder hidden states" }, 90, "transformer.final_norm"),
-    makeSemanticGroup("lm_head", "LM Head", "head", buckets.lm_head, { projection: "hidden states -> vocabulary logits", tiedEmbedding: hasTiedEmbeddingHead(nodes) }, 92, "transformer.lm_head"),
-    makeSemanticGroup("outputs", "Logits + Cache Outputs", "output", buckets.outputs, { outputs: outputTensorSummary(buckets.outputs), cacheOutputs }, 100, "io.outputs")
-  ];
-
-  if (buckets.runtime_support.length) {
-    groups.splice(2, 0, makeSemanticGroup("runtime_support", "Shape + Mask Support", "support", buckets.runtime_support, { role: "dynamic sequence shape, constants, casts, and causal mask helpers" }, 82, "onnx.runtime_support"));
+    const av = successors(probability).find(node => standard(node) && node.opType === "MatMul" && probability.outputs.includes(node.inputs[0]) && !node.inputs.some(isParameter));
+    if (!av) continue;
+    const qk = path.at(-1);
+    const raw = [softmax, ...scoreNodes, ...after, av];
+    const roles = {
+      [qk.id]: "Query × key scores",
+      [softmax.id]: "Attention weights",
+      [av.id]: "Weighted value mixing"
+    };
+    const seen = new Set(raw.map(node => node.id));
+    const collectProjection = (name, role, depth = 0) => {
+      const node = producer(name);
+      if (!node || depth > 8 || !standard(node)) return;
+      if (!layouts.has(node.opType) && !isProjection(node) && !bias(node)) return;
+      const roleLabel = `${role} ${isProjection(node) ? "projection" : "layout / bias"}`;
+      if (roles[node.id] && roles[node.id] !== roleLabel) roles[node.id] = "Shared query / key / value projection";else roles[node.id] = roleLabel;
+      if (seen.has(node.id)) return;
+      seen.add(node.id);
+      raw.push(node);
+      if (!isProjection(node)) for (const input of node.inputs) if (!isParameter(input)) collectProjection(input, role, depth + 1);
+    };
+    collectProjection(qk.inputs[0], "Query");
+    collectProjection(qk.inputs[1], "Key");
+    collectProjection(av.inputs[1], "Value");
+    let tail = av;
+    for (let step = 0; step < 6; step += 1) {
+      const next = successors(tail);
+      if (next.length !== 1) break;
+      const node = next[0];
+      if (!standard(node) || !layouts.has(node.opType) && !isProjection(node) && !bias(node)) break;
+      raw.push(node);
+      tail = node;
+      roles[node.id] = isProjection(node) ? "Output projection" : "Output layout / bias";
+      if (isProjection(node)) {
+        const nextBias = successors(tail);
+        if (nextBias.length === 1 && bias(nextBias[0])) {
+          raw.push(nextBias[0]);
+          roles[nextBias[0].id] = "Output bias";
+        }
+        break;
+      }
+    }
+    add("Attention", "attention", raw, ["Connected score MatMul → Softmax → value MatMul", "Projection and layout operators traced through tensor connections", "Self vs cross attention is not established by this pattern"], "pattern", roles);
+  }
+  for (const node of nodes) {
+    if (assigned.has(node.id)) continue;
+    if (["Attention", "MultiHeadAttention"].includes(node.opType) && (standard(node) || node.domain === "com.microsoft")) {
+      add("Attention (fused)", "attention", [node], [`${node.domain || "ai.onnx"}::${node.opType} is stored as one operator`, "Internal primitives are not present in this file"], "fused");
+      continue;
+    }
+    if (isProjection(node) || standard(node) && node.opType === "Conv") {
+      const raw = [node];
+      let tail = node;
+      let hasActivation = false;
+      let projections = 1;
+      for (let step = 0; step < 5; step += 1) {
+        const next = successors(tail);
+        if (next.length !== 1 || assigned.has(next[0].id) || !standard(next[0])) break;
+        const candidate = next[0];
+        if (bias(candidate) || activations.has(candidate.opType) || node.opType === "Conv" && candidate.opType === "BatchNormalization") {
+          raw.push(candidate);
+          tail = candidate;
+          hasActivation ||= activations.has(candidate.opType);
+        } else if (node.opType !== "Conv" && hasActivation && projections === 1 && isProjection(candidate)) {
+          raw.push(candidate);
+          tail = candidate;
+          projections += 1;
+        } else break;
+      }
+      const kind = node.opType === "Conv" ? "convolution" : projections > 1 ? "mlp" : "dense";
+      add(kind === "mlp" ? "Feed-forward network" : kind === "convolution" ? "Convolution" : "Dense projection", kind, raw, ["Connected operators with constant/initializer parameters", `Pattern: ${raw.map(item => item.opType).join(" → ")}`]);
+      continue;
+    }
+    if (standard(node) && node.opType === "Gather" && index.parameters.get(node.inputs[0])?.dims?.length === 2) {
+      add("Embedding lookup", "embedding", [node], ["Gather reads a rank-2 initializer", "Embedding role inferred from lookup structure"]);
+      continue;
+    }
+    assigned.add(node.id);
+    const leaf = primitive(node);
+    if (node.attributes?.some(attr => [5, 10].includes(attr.type))) {
+      leaf.evidence.push("Contains nested graphs; this view maps the parent operator and its top-level tensors");
+    }
+    if (standard(node) && node.opType === "Add" && node.inputs.length === 2 && node.inputs.every(name => index.producer.has(name) && !isParameter(name))) {
+      leaf.label = "Residual / tensor add";
+      leaf.recognition = "pattern";
+      leaf.evidence.push("Two computed tensors merge; residual role requires surrounding context");
+    }
+    groups.push(leaf);
   }
 
-  const usefulGroups = groups.filter((group) => group.rawNodeCount > 0);
-  return usefulGroups.length >= 3 ? usefulGroups : null;
+  // Exporter scopes add hierarchy without pretending that names prove architecture.
+  const scopes = new Map();
+  const root = [];
+  const order = new Map(nodes.map((node, i) => [node.id, i]));
+  groups.sort((a, b) => Math.min(...a.rawNodeIds.map(id => order.get(id))) - Math.min(...b.rawNodeIds.map(id => order.get(id))));
+  for (const group of groups) {
+    const hints = group.rawNodeIds.map(id => blockScope(index.byId.get(id))).filter(Boolean);
+    const scope = hints[0];
+    if (!scope || hints.length !== group.rawNodeIds.length || hints.some(hint => hint.key !== scope.key)) {
+      root.push(group);
+      continue;
+    }
+    if (!scopes.has(scope.key)) {
+      const parent = make(`scope:${scope.key}`, `Block ${scope.number}`, "block", [], "scope", [`Exporter namespace: ${scope.key}`, "Children recognized independently from operator dataflow"], []);
+      scopes.set(scope.key, parent);
+      root.push(parent);
+    }
+    scopes.get(scope.key).children.push(group);
+  }
+  for (const parent of scopes.values()) {
+    parent.rawNodeIds = parent.children.flatMap(child => child.rawNodeIds);
+    parent.rawNodeCount = parent.rawNodeIds.length;
+    Object.assign(parent, groupBoundary(parent.rawNodeIds, index));
+    parent.metadata = {
+      operators: parent.rawNodeCount,
+      scope: parent.evidence[0].replace("Exporter namespace: ", "")
+    };
+  }
+  return root;
 }
-
-function makeSemanticGroup(id, label, kind, raw, metadata, confidence, recognizer) {
+function blockScope(node) {
+  if (["Input", "Output"].includes(node.opType)) return null;
+  const match = node.name?.match(/(?:^|[/.])(?:h|layers?|blocks?)[/.](\d+)(?=[/.]|$)/);
+  if (!match) return null;
   return {
-    id,
-    label,
-    kind,
-    rawNodeIds: raw.map((node) => node.id),
-    rawNodeCount: raw.length,
-    inputs: [...new Set(raw.flatMap((node) => node.inputs ?? []))].slice(0, 4),
-    outputs: [...new Set(raw.flatMap((node) => node.outputs ?? []))].slice(-4),
-    metadata,
-    confidence,
-    recognizer
+    key: node.name.slice(0, match.index + match[0].length),
+    number: Number(match[1])
   };
 }
-
-function primaryTransformerBucket(node) {
-  if (node.opType === "Input") return "inputs";
-  if (node.opType === "Output") return "outputs";
-  if (nodeMatches(node, /\/lm_head\//) || nodeMatches(node, /logits|weight_transposed/)) return "lm_head";
-  if (nodeMatches(node, /\/transformer\/ln_f\//)) return "final_norm";
-  if (transformerBlockIndex(node) !== null) return "transformer_blocks";
-  if (nodeMatches(node, /\/transformer\/(?:wte|wpe)\//) || nodeMatches(node, /(?:^|\/)transformer\/(?:Shape|Range|Add|Sub|Mul|Unsqueeze|Cast|Gather)(?:_|$|\/)/)) {
-    return "embeddings";
-  }
-  return null;
+export function createCleanEdges(groups, index) {
+  return index ? deriveGroupEdges(groups, index) : [];
 }
-
-function assignSupportNodes(nodes, buckets, assigned) {
-  const consumerBuckets = new Map();
-  nodes.forEach((node) => {
-    const bucket = assigned.get(node.id);
-    if (!bucket) return;
-    (node.inputs ?? []).forEach((input) => {
-      if (!consumerBuckets.has(input)) consumerBuckets.set(input, bucket);
-    });
-  });
-
-  nodes.forEach((node) => {
-    if (assigned.has(node.id)) return;
-    const outputConsumers = (node.outputs ?? []).map((output) => consumerBuckets.get(output)).filter(Boolean);
-    const bucket = outputConsumers.find((candidate) => candidate !== "outputs") ?? "runtime_support";
-    buckets[bucket].push(node);
-    assigned.set(node.id, bucket);
-  });
-}
-
-function transformerBlockIndex(node) {
-  const match = searchableNodeText(node).match(/(?:^|[/.])h\.(\d+)(?:[/.]|$)/);
-  return match ? Number.parseInt(match[1], 10) : null;
-}
-
-function nodeMatches(node, pattern) {
-  return pattern.test(searchableNodeText(node));
-}
-
-function searchableNodeText(node) {
-  return [node.name, node.opType, ...(node.inputs ?? []), ...(node.outputs ?? [])].filter(Boolean).join(" ");
-}
-
-function formatBlockRange(indexes) {
-  if (!indexes.length) return "";
-  if (indexes.length === 1) return `h.${indexes[0]}`;
-  return `h.${indexes[0]}-h.${indexes.at(-1)}`;
-}
-
-function estimateBlockCount(nodes) {
-  const layerNorms = nodes.filter((node) => nodeMatches(node, /\/ln_[12]\//)).length;
-  return layerNorms ? Math.max(1, Math.round(layerNorms / 10)) : null;
-}
-
-function inputTensorNames(nodes) {
-  const names = nodes.map((node) => node.name).filter(Boolean);
-  return names.length ? names.join(", ") : "model inputs";
-}
-
-function outputTensorSummary(nodes) {
-  const names = nodes.map((node) => node.name).filter(Boolean);
-  const visible = names.filter((name) => !/^present\.\d+\.(key|value)$/.test(name));
-  const cacheCount = names.length - visible.length;
-  return [...visible, cacheCount ? `${cacheCount} key/value cache tensors` : null].filter(Boolean).join(", ") || "model outputs";
-}
-
-function hasTiedEmbeddingHead(nodes) {
-  return nodes.some((node) => nodeMatches(node, /wte\.weight_transposed|transformer\.wte\.weight/));
+export function summarizeCoverage(groups, nodes) {
+  const leaves = flattenGroups(groups).filter(group => !group.children?.length);
+  const recognized = new Set(flattenGroups(groups).filter(group => ["pattern", "fused"].includes(group.recognition)).flatMap(group => group.rawNodeIds));
+  const operators = nodes.filter(node => !["Input", "Output"].includes(node.opType));
+  return {
+    rawNodes: operators.length,
+    semanticGroups: groups.length,
+    recognizedNodes: operators.filter(node => recognized.has(node.id)).length,
+    coverage: nodes.length ? Math.round(new Set(leaves.flatMap(g => g.rawNodeIds)).size / nodes.length * 100) : 0
+  };
 }
