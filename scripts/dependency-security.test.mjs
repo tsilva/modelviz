@@ -33,7 +33,7 @@ test("patched dependency floors are installed", () => {
   assert.deepEqual(tuple(installedVersion("@babel/core")), [7, 29, 7]);
   assert.deepEqual(tuple(installedVersion("brace-expansion")), [5, 0, 12]);
   assert.deepEqual(tuple(installedVersion("nanoid")), [3, 3, 18]);
-  assert.deepEqual(tuple(installedVersion("postcss")), [8, 5, 26]);
+  assert.deepEqual(tuple(installedVersion("postcss")), [8, 5, 28]);
 });
 
 test("Brace Expansion handles consecutive empty groups in bounded time", () => {
