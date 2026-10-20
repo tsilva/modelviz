@@ -12,5 +12,10 @@
   "destination": "vercel",
   "vercelProjectId": "prj_Sy4GGWi85T3HvrFY4f2I6NyQ1Bia",
   "vercelProjectName": "modelviz",
-  "vercelTeamId": "team_eE2Iv7IMqPOx8ZVN2xNfR2f0"
+  "vercelTeamId": "team_eE2Iv7IMqPOx8ZVN2xNfR2f0",
+  "configNames": [
+    "SENTRY_ORG",
+    "SENTRY_PROJECT",
+    "VITE_SENTRY_DSN"
+  ]
 }
