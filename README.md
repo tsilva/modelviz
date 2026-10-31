@@ -31,6 +31,16 @@ pnpm build    # build the production bundle
 pnpm preview  # preview the production bundle locally
 ```
 
+Dependency installation retains the seven-day release quarantine, blocks exotic
+subdependencies, and disables lifecycle scripts. Exact security exceptions pin
+`source-map-js@1.2.2` and the reviewed Sentry build-tool chain: `glob@14.0.2`,
+`minimatch@11.0.1`, `path-scurry@3.0.0`, and
+`@isaacs/nonrecursive-glob-match@1.0.1`. The latter overrides are scoped to
+Sentry's dependency graph because its declared glob range still selects a
+vulnerable release. Revisit them when Sentry adopts the fixed range.
+`pnpm test` checks Sentry's installed offline asset and source-map selection,
+exclusions, pattern amplification limits, and cancellation without uploading files.
+
 ## Notes
 
 - ModelViz automatically loads the DistilGPT2 example on startup, with download
