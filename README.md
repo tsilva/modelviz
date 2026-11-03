@@ -38,6 +38,9 @@ subdependencies, and disables lifecycle scripts. Exact security exceptions pin
 `@isaacs/nonrecursive-glob-match@1.0.1`. The latter overrides are scoped to
 Sentry's dependency graph because its declared glob range still selects a
 vulnerable release. Revisit them when Sentry adopts the fixed range.
+
+Local builds skip Sentry source-map uploads. Hosted Vercel builds handle uploads.
+
 `pnpm test` checks Sentry's installed offline asset and source-map selection,
 exclusions, pattern amplification limits, and cancellation without uploading files.
 
