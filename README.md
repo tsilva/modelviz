@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./public/brand/logo/logo-1024.png" alt="ModelViz" width="360" />
+  <img src="./logo.png" alt="ModelViz" width="360" />
   <br />
   <!-- repo-tagline:start -->
   <strong>🔎 Turn raw ONNX graphs into clean model views 🔎</strong>
