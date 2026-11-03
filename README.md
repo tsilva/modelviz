@@ -46,6 +46,8 @@ exclusions, pattern amplification limits, and cancellation without uploading fil
 
 ## Notes
 
+The public homepage at [https://modelviz.tsilva.eu/](https://modelviz.tsilva.eu/) is the canonical URL listed in `/sitemap.xml`.
+
 - ModelViz automatically loads the DistilGPT2 example on startup, with download
   progress and browser-side parsing. It uses the pinned FP16 decoder export from
   [Xenova/distilgpt2](https://huggingface.co/Xenova/distilgpt2/blob/a41c10485c18a64b6606729b6a082330cbd8f49e/onnx/decoder_model_fp16.onnx)
