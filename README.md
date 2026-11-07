@@ -48,11 +48,13 @@ exclusions, pattern amplification limits, and cancellation without uploading fil
 
 The public homepage at [https://modelviz.tsilva.eu/](https://modelviz.tsilva.eu/) is the canonical URL listed in `/sitemap.xml`.
 
-- ModelViz automatically loads the DistilGPT2 example on startup, with download
-  progress and browser-side parsing. It uses the pinned FP16 decoder export from
-  [Xenova/distilgpt2](https://huggingface.co/Xenova/distilgpt2/blob/a41c10485c18a64b6606729b6a082330cbd8f49e/onnx/decoder_model_fp16.onnx)
-  (about 158 MiB). Cancel loading to open your own file; the welcome screen lets
-  you reload the example if the download fails or is canceled.
+- ModelViz automatically loads the DistilGPT2 example from a local graph snapshot.
+  Cancel loading to open your own file. The welcome screen lets you reload the example.
+  The snapshot contains the operators, tensor metadata, and size accounting from
+  the [pinned Xenova ONNX export](https://huggingface.co/Xenova/distilgpt2/blob/a41c10485c18a64b6606729b6a082330cbd8f49e/onnx/decoder_model_fp16.onnx).
+  Regenerate it with `node scripts/generate-default-model.mjs PATH_TO_PINNED_ONNX`.
+  DistilGPT2 comes from the [Hugging Face DistilBERT team](https://huggingface.co/distilbert/distilgpt2)
+  under the [Apache 2.0 license](public/models/LICENSE-distilgpt2.txt).
 - Uploaded files are parsed in the browser with the local ONNX protobuf parser.
 - The web model browser searches Hugging Face ONNX model files and estimates browser parsing fit from file size, device memory, and CPU thread count before loading.
 - The dev server still exposes `/api/model/default` for local experiments.

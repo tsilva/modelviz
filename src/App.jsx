@@ -8,9 +8,9 @@ import { assessRemoteModelFit, createRemoteModelFromUrl, formatBytes, getBrowser
 const initialLoadProgress = remoteModel => ({
   state: "loading",
   title: `Loading ${remoteModel.name}`,
-  detail: remoteModel.artifactPath,
+  detail: remoteModel.graphUrl ? "Model graph metadata" : remoteModel.artifactPath,
   loadedBytes: 0,
-  totalBytes: remoteModel.sizeBytes ?? remoteModel.estimatedBytes ?? null
+  totalBytes: remoteModel.graphSizeBytes ?? remoteModel.sizeBytes ?? remoteModel.estimatedBytes ?? null
 });
 function App() {
   const [query, setQuery] = useState("");
@@ -85,13 +85,12 @@ function App() {
       event.target.value = "";
     }
   };
-  const loadModelBuffer = async ({
+  const loadModelGraph = ({
     fileName,
     sourcePath,
-    buffer
+    graph
   }) => {
-    const parsed = parseOnnxModel(buffer);
-    const nextView = createModelViewFromOnnx(fileName, parsed, sourcePath);
+    const nextView = createModelViewFromOnnx(fileName, graph, sourcePath);
     setModelView(nextView);
     setModelRevision(value => value + 1);
     setQuery("");
@@ -150,13 +149,13 @@ function App() {
     setModelBrowserOpen(false);
     setLoadStatus({
       state: "loading",
-      message: `Downloading ${remoteModel.artifactPath}`
+      message: remoteModel.graphUrl ? `Loading ${remoteModel.name}` : `Downloading ${remoteModel.artifactPath}`
     });
     setLoadProgress(initialLoadProgress(remoteModel));
     try {
-      const response = await fetch(remoteModel.downloadUrl, { signal: controller.signal });
+      const response = await fetch(remoteModel.graphUrl ?? remoteModel.downloadUrl, { signal: controller.signal });
       if (!response.ok) throw new Error(`Remote model download failed (${response.status})`);
-      const totalBytes = readContentLength(response) ?? remoteModel.sizeBytes ?? remoteModel.estimatedBytes ?? null;
+      const totalBytes = remoteModel.graphSizeBytes ?? readContentLength(response) ?? remoteModel.sizeBytes ?? remoteModel.estimatedBytes ?? null;
       const buffer = await readResponseBuffer(response, {
         totalBytes,
         onProgress: loadedBytes => {
@@ -164,7 +163,7 @@ function App() {
           setLoadProgress({
             state: "loading",
             title: `Loading ${remoteModel.name}`,
-            detail: remoteModel.artifactPath,
+            detail: remoteModel.graphUrl ? "Model graph metadata" : remoteModel.artifactPath,
             loadedBytes,
             totalBytes
           });
@@ -178,10 +177,10 @@ function App() {
         loadedBytes: totalBytes ?? buffer.byteLength,
         totalBytes: totalBytes ?? buffer.byteLength
       });
-      await loadModelBuffer({
+      loadModelGraph({
         fileName: remoteModel.fileName || remoteModel.artifactPath.split("/").pop() || remoteModel.name || "model.onnx",
         sourcePath: remoteModel.downloadUrl,
-        buffer
+        graph: remoteModel.graphUrl ? JSON.parse(new TextDecoder().decode(buffer)) : parseOnnxModel(buffer)
       });
       if (remoteModel !== DEFAULT_MODEL) setWebStatus({
         state: "ready",
