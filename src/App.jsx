@@ -220,7 +220,7 @@ function App() {
   return <main className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <img className="modelviz-icon" src="/brand/icon/icon-1024.png" alt="" />
+          <img className="modelviz-icon" src="/brand/web-seo/android-chrome-192.png" width="34" height="34" alt="" />
           <div>
             <strong>ModelViz</strong>
             <span>ONNX architecture explorer</span>
