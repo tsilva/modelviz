@@ -18,9 +18,18 @@ try {
   const initialModelView = createDefaultModelView(JSON.parse(graph));
   const markup = renderToString(createElement(App, { initialModelView }));
   const output = new URL("../dist/index.html", import.meta.url);
-  const html = await readFile(output, "utf8");
+  let html = await readFile(output, "utf8");
   const placeholder = '<div id="root"></div>';
   if (!html.includes(placeholder)) throw new Error("Missing ModelViz prerender root");
+
+  const stylesheet = html.match(/<link rel="stylesheet" crossorigin href="(\/assets\/[^"/]+\.css)">/u);
+  if (stylesheet) {
+    const css = await readFile(new URL(`.${stylesheet[1]}`, output), "utf8");
+    // Keep linked CSS when it needs its own URL for resource resolution.
+    if (!/(?:@import\b|url\s*\(|<\/style\b)/iu.test(css)) {
+      html = html.replace(stylesheet[0], () => `<style>${css}</style>`);
+    }
+  }
 
   const snapshot = graph.replaceAll("<", "\\u003c");
   await writeFile(output, html.replace(placeholder, () =>

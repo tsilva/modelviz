@@ -235,7 +235,7 @@ function App({ initialModelView } = {}) {
   return <main className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <img className="modelviz-icon" src="/brand/web-seo/android-chrome-192.png" width="34" height="34" alt="" />
+          <img className="modelviz-icon" src="/brand/modelviz-header-96.png" width="34" height="34" alt="" />
           <div>
             <strong>ModelViz</strong>
             <span>ONNX architecture explorer</span>
