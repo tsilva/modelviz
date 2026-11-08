@@ -6,7 +6,7 @@
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "dev": "python3 scripts/infisical/run.py dev",
-    "build": "vite build",
+    "build": "vite build && node scripts/prerender.mjs",
     "preview": "node scripts/dev-server.mjs vite preview --host 127.0.0.1",
     "test": "node --test scripts/*.test.mjs",
     "dev:app": "node scripts/dev-server.mjs vite --host 127.0.0.1",

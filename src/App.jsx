@@ -11,15 +11,18 @@ const initialLoadProgress = remoteModel => ({
   loadedBytes: 0,
   totalBytes: remoteModel.graphSizeBytes ?? remoteModel.sizeBytes ?? remoteModel.estimatedBytes ?? null
 });
-function App() {
+function App({ initialModelView } = {}) {
   const [query, setQuery] = useState("");
-  const [modelView, setModelView] = useState(() => createEmptyModelView());
+  const [modelView, setModelView] = useState(() => initialModelView ?? createEmptyModelView());
   const [modelRevision, setModelRevision] = useState(0);
-  const [loadStatus, setLoadStatus] = useState({
+  const [loadStatus, setLoadStatus] = useState(initialModelView ? {
+    state: "ready",
+    message: initialModelView.loadMessage
+  } : {
     state: "loading",
     message: "Loading DistilGPT2"
   });
-  const [loadProgress, setLoadProgress] = useState(() => initialLoadProgress(DEFAULT_MODEL));
+  const [loadProgress, setLoadProgress] = useState(() => initialModelView ? null : initialLoadProgress(DEFAULT_MODEL));
   const [webQuery, setWebQuery] = useState("distilgpt2");
   const [webResults, setWebResults] = useState([]);
   const [webStatus, setWebStatus] = useState({
@@ -226,7 +229,7 @@ function App() {
     setLoadStatus({ state: hasModel ? "ready" : "idle", message: hasModel ? modelView.loadMessage : "Open an ONNX model or reload the example" });
   };
   useEffect(() => {
-    loadRemoteModel(DEFAULT_MODEL);
+    if (!initialModelView) loadRemoteModel(DEFAULT_MODEL);
     return () => modelLoadAbortRef.current?.abort();
   }, []);
   return <main className="app-shell">

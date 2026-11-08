@@ -1,3 +1,5 @@
+import { createModelViewFromOnnx } from "./modelView.js";
+
 // Pinned public export: https://huggingface.co/Xenova/distilgpt2
 export const DEFAULT_MODEL = {
   name: "DistilGPT2",
@@ -9,3 +11,7 @@ export const DEFAULT_MODEL = {
   graphUrl: "/models/distilgpt2-graph.json",
   graphSizeBytes: 560554
 };
+
+export function createDefaultModelView(graph) {
+  return createModelViewFromOnnx(DEFAULT_MODEL.fileName, graph, DEFAULT_MODEL.downloadUrl);
+}

@@ -27,7 +27,7 @@ Open the local Vite URL printed by the dev server, usually [http://127.0.0.1:517
 pnpm dev      # start the local Vite dev server
 pnpm audit --audit-level low  # audit the complete dependency graph
 pnpm test     # run architecture mapping and dependency security regressions
-pnpm build    # build the production bundle
+pnpm build    # bundle and prerender the default workspace
 pnpm preview  # preview the production bundle locally
 ```
 
@@ -48,8 +48,9 @@ exclusions, pattern amplification limits, and cancellation without uploading fil
 
 The public homepage at [https://modelviz.tsilva.eu/](https://modelviz.tsilva.eu/) is the canonical URL listed in `/sitemap.xml`.
 
-- ModelViz automatically loads the DistilGPT2 example from a local graph snapshot.
-  Cancel loading to open your own file. The welcome screen lets you reload the example.
+- The production homepage shows the DistilGPT2 example from a local graph snapshot.
+  In development, ModelViz loads that snapshot when the page starts. The welcome
+  screen lets you reload the example.
   The snapshot contains the operators, tensor metadata, and size accounting from
   the [pinned Xenova ONNX export](https://huggingface.co/Xenova/distilgpt2/blob/a41c10485c18a64b6606729b6a082330cbd8f49e/onnx/decoder_model_fp16.onnx).
   Regenerate it with `node scripts/generate-default-model.mjs PATH_TO_PINNED_ONNX`.
