@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CircuitBoard, DownloadCloud, ExternalLink, FileUp, Globe2, Search, ShieldCheck, X } from "lucide-react";
 import MappingWorkspace from "./components/MappingWorkspace.jsx";
 import { createEmptyModelView, createModelViewFromOnnx } from "./lib/modelView.js";
-import { parseOnnxModel } from "./lib/onnxParser.js";
 import { DEFAULT_MODEL } from "./lib/defaultModel.js";
 import { assessRemoteModelFit, createRemoteModelFromUrl, formatBytes, getBrowserFitContext, searchWebOnnxModels } from "./lib/webModelBrowser.js";
 const initialLoadProgress = remoteModel => ({
@@ -60,14 +59,22 @@ function App() {
   const openFile = async event => {
     const [file] = event.target.files ?? [];
     if (!file) return;
+    event.target.value = "";
     modelLoadAbortRef.current?.abort();
+    const controller = new AbortController();
+    modelLoadAbortRef.current = controller;
     setLoadProgress(null);
     setLoadStatus({
       state: "loading",
       message: `Loading ${file.name}`
     });
     try {
-      const parsed = parseOnnxModel(await file.arrayBuffer());
+      const [buffer, { parseOnnxModel }] = await Promise.all([
+        file.arrayBuffer(),
+        import("./lib/onnxParser.js")
+      ]);
+      if (controller.signal.aborted) return;
+      const parsed = parseOnnxModel(buffer);
       const nextView = createModelViewFromOnnx(file.name, parsed);
       setModelView(nextView);
       setModelRevision(value => value + 1);
@@ -77,12 +84,13 @@ function App() {
         message: nextView.loadMessage
       });
     } catch (error) {
+      if (controller.signal.aborted) return;
       setLoadStatus({
         state: "error",
         message: error.message
       });
     } finally {
-      event.target.value = "";
+      if (modelLoadAbortRef.current === controller) modelLoadAbortRef.current = null;
     }
   };
   const loadModelGraph = ({
@@ -153,7 +161,10 @@ function App() {
     });
     setLoadProgress(initialLoadProgress(remoteModel));
     try {
-      const response = await fetch(remoteModel.graphUrl ?? remoteModel.downloadUrl, { signal: controller.signal });
+      const [response, onnxParser] = await Promise.all([
+        fetch(remoteModel.graphUrl ?? remoteModel.downloadUrl, { signal: controller.signal }),
+        remoteModel.graphUrl ? null : import("./lib/onnxParser.js")
+      ]);
       if (!response.ok) throw new Error(`Remote model download failed (${response.status})`);
       const totalBytes = remoteModel.graphSizeBytes ?? readContentLength(response) ?? remoteModel.sizeBytes ?? remoteModel.estimatedBytes ?? null;
       const buffer = await readResponseBuffer(response, {
@@ -180,7 +191,7 @@ function App() {
       loadModelGraph({
         fileName: remoteModel.fileName || remoteModel.artifactPath.split("/").pop() || remoteModel.name || "model.onnx",
         sourcePath: remoteModel.downloadUrl,
-        graph: remoteModel.graphUrl ? JSON.parse(new TextDecoder().decode(buffer)) : parseOnnxModel(buffer)
+        graph: onnxParser ? onnxParser.parseOnnxModel(buffer) : JSON.parse(new TextDecoder().decode(buffer))
       });
       if (remoteModel !== DEFAULT_MODEL) setWebStatus({
         state: "ready",
@@ -205,6 +216,7 @@ function App() {
         totalBytes: null
       });
     } finally {
+      controller.abort();
       if (modelLoadAbortRef.current === controller) modelLoadAbortRef.current = null;
     }
   };
