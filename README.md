@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./public/brand/logo/logo-1024.png" alt="ModelViz" width="360" />
+  <img src="./logo.png" alt="ModelViz" width="360" />
   <br />
   <!-- repo-tagline:start -->
   <strong>🔎 Turn raw ONNX graphs into clean model views 🔎</strong>
@@ -27,17 +27,35 @@ Open the local Vite URL printed by the dev server, usually [http://127.0.0.1:517
 pnpm dev      # start the local Vite dev server
 pnpm audit --audit-level low  # audit the complete dependency graph
 pnpm test     # run architecture mapping and dependency security regressions
-pnpm build    # build the production bundle
+pnpm build    # bundle and prerender the default workspace
 pnpm preview  # preview the production bundle locally
 ```
 
+Dependency installation retains the seven-day release quarantine, blocks exotic
+subdependencies, and disables lifecycle scripts. Exact security exceptions pin
+`source-map-js@1.2.2` and the reviewed Sentry build-tool chain: `glob@14.0.2`,
+`minimatch@11.0.1`, `path-scurry@3.0.0`, and
+`@isaacs/nonrecursive-glob-match@1.0.1`. The latter overrides are scoped to
+Sentry's dependency graph because its declared glob range still selects a
+vulnerable release. Revisit them when Sentry adopts the fixed range.
+
+Local builds skip Sentry source-map uploads. Hosted Vercel builds handle uploads.
+
+`pnpm test` checks Sentry's installed offline asset and source-map selection,
+exclusions, pattern amplification limits, and cancellation without uploading files.
+
 ## Notes
 
-- ModelViz automatically loads the DistilGPT2 example on startup, with download
-  progress and browser-side parsing. It uses the pinned FP16 decoder export from
-  [Xenova/distilgpt2](https://huggingface.co/Xenova/distilgpt2/blob/a41c10485c18a64b6606729b6a082330cbd8f49e/onnx/decoder_model_fp16.onnx)
-  (about 158 MiB). Cancel loading to open your own file; the welcome screen lets
-  you reload the example if the download fails or is canceled.
+The public homepage at [https://modelviz.tsilva.eu/](https://modelviz.tsilva.eu/) is the canonical URL listed in `/sitemap.xml`.
+
+- The production homepage shows the DistilGPT2 example from a local graph snapshot.
+  In development, ModelViz loads that snapshot when the page starts. The welcome
+  screen lets you reload the example.
+  The snapshot contains the operators, tensor metadata, and size accounting from
+  the [pinned Xenova ONNX export](https://huggingface.co/Xenova/distilgpt2/blob/a41c10485c18a64b6606729b6a082330cbd8f49e/onnx/decoder_model_fp16.onnx).
+  Regenerate it with `node scripts/generate-default-model.mjs PATH_TO_PINNED_ONNX`.
+  DistilGPT2 comes from the [Hugging Face DistilBERT team](https://huggingface.co/distilbert/distilgpt2)
+  under the [Apache 2.0 license](public/models/LICENSE-distilgpt2.txt).
 - Uploaded files are parsed in the browser with the local ONNX protobuf parser.
 - The web model browser searches Hugging Face ONNX model files and estimates browser parsing fit from file size, device memory, and CPU thread count before loading.
 - The dev server still exposes `/api/model/default` for local experiments.
@@ -84,6 +102,11 @@ quality evaluation.
 
 ## License
 
-No license file is currently included.
 
 Production delivery runs on pushes to `main` and supports manual secret rotations. See [production delivery](docs/production-delivery.md) for destinations, access boundaries and failure behavior.
+
+Production secrets are delivered through the pinned shared GitHub Actions workflow. The standalone signed Infisical relay triggers synchronization and deployment; see [production delivery](docs/production-delivery.md) for scope and recovery.
+
+Production delivery keeps Vercel secret isolation enabled and distinguishes public configuration from private credentials; see [production delivery](docs/production-delivery.md).
+
+[MIT License](LICENSE).

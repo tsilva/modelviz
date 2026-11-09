@@ -7,7 +7,7 @@
   --text: #0f172a;
   --muted: #64748b;
   --line: #d9e2ec;
-  --accent: #0f7fbd;
+  --accent: #0c75ae;
   --teal: #0f766e;
   --shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
 }
@@ -646,7 +646,7 @@ button {
 .brand div > span { display: none; }
 .modelviz-icon { height: 34px; width: 34px; object-fit: contain; }
 .loaded-file { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-left: 1px solid var(--line); padding-left: 20px; }
-.primary { box-shadow: none; background: #0f7fbd; font-size: 13px; font-weight: 650; border-radius: 6px; min-height: 36px; }
+.primary { box-shadow: none; background: var(--accent); font-size: 13px; font-weight: 650; border-radius: 6px; min-height: 36px; }
 .secondary-topbar { color: #334155; background: #fff; border-color: var(--line); font-size: 13px; font-weight: 600; }
 .status-pill { min-height: auto; background: none; border: 0; padding: 0; color: #0f766e; font-size: 12px; font-weight: 500; }
 .search-box { border-radius: 6px; height: 36px; background: #f8fafc; }
@@ -668,7 +668,7 @@ button {
 .mapping-summary i { font-style: normal; margin: 0 9px; color: #cbd5e1; }
 .view-toggle { background: #f8fafc; border: 1px solid #d9e2ec; padding: 0; overflow: hidden; border-radius: 5px; flex-shrink: 0; }
 .view-toggle button { border-radius: 0; min-height: 32px; min-width: 64px; font-weight: 500; }
-.view-toggle button.active { color: #fff; background: #0f7fbd; box-shadow: none; }
+.view-toggle button.active { color: #fff; background: var(--accent); box-shadow: none; }
 .mapping-main { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; }
 .mapping-main.with-navigator { grid-template-columns: 248px minmax(0, 1fr); }
 .mapping-stage { display: grid; min-width: 0; min-height: 0; gap: 0; }
@@ -736,23 +736,23 @@ button {
 .mapping-inspector-header .recognition-scope { color: #92400e; background: #fff7e2; }
 .mapping-inspector-header nav { display: flex; align-self: stretch; flex-shrink: 0; }
 .mapping-inspector-header nav button { padding: 8px 13px; background: transparent; color: #64748b; font-size: 12px; border-bottom: 2px solid transparent; }
-.mapping-inspector-header nav button.active { color: #0f7fbd; border-bottom-color: #0f7fbd; }
+.mapping-inspector-header nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
 .mapping-overview { display: grid; grid-template-columns: minmax(240px, .85fr) minmax(240px, .8fr) minmax(340px, 1.35fr); padding: 12px 24px 18px; gap: 24px; }
 .mapping-overview > section + section { border-left: 1px solid #e2e8f0; padding-left: 24px; }
 .mapping-inspector h3 { font-size: 11px; line-height: 16px; margin: 0 0 8px; color: #334155; font-weight: 650; }
-.mapping-inspector h3 span { color: #94a3b8; font-size: 10px; margin-left: 4px; font-weight: 400; }
+.mapping-inspector h3 span { color: var(--muted); font-size: 10px; margin-left: 4px; font-weight: 400; }
 .mapping-overview p { font-size: 11px; line-height: 17px; color: #475569; margin: 4px 0; overflow-wrap: anywhere; }
-.muted-copy { color: #94a3b8; font-size: 10px; line-height: 16px; display: block; margin-top: 8px; }
+.muted-copy { color: var(--muted); font-size: 10px; line-height: 16px; display: block; margin-top: 8px; }
 .trace-preview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 3px 10px; }
 .trace-row { min-width: 0; padding: 5px 4px; display: flex; align-items: center; gap: 8px; color: #475569; background: transparent; border-radius: 4px; text-align: left; }
 .trace-row:hover, .trace-row.active { background: #e0f2fe; color: #075985; }
 .trace-row span { font-size: 11px; font-weight: 600; flex-shrink: 0; min-width: 48px; }
 .trace-row code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: #64748b; flex: 1; min-width: 0; }
 .trace-row svg { flex-shrink: 0; }
-.text-action { padding: 0; color: #0f7fbd; font-size: 11px; background: transparent; margin-top: 5px; }
+.text-action { padding: 0; color: var(--accent); font-size: 11px; background: transparent; margin-top: 5px; }
 .boundary-tensors { display: grid; gap: 6px; }
 .boundary-tensor { display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: center; gap: 3px 8px; font-size: 11px; padding: 4px 0; border-bottom: 1px solid #f1f5f9; }
-.boundary-tensor small { color: #94a3b8; font-size: 10px; }
+.boundary-tensor small { color: var(--muted); font-size: 10px; }
 .boundary-tensor code { color: #475569; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .boundary-tensor > span { grid-column: 2; color: #64748b; font-size: 10px; }
 .active-primitive { padding: 6px 24px; display: flex; align-items: center; gap: 12px; font-size: 11px; background: #f0f9ff; margin-top: 8px; color: #075985; }

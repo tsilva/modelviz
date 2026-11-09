@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "profiles": [
+    "web"
+  ],
+  "sources": [
+    {
+      "path": "image-assets/sources/logo-source.png",
+      "sha256": "7d015e6054a870d1bd6b8936f33ebbc5f8d7281364e32bf3bee2925dbcfa24b7",
+      "generatedAt": "2026-11-03T16:20:06Z",
+      "evidence": "Codex native ImageGen output for Graph Lens. The README export removes the chroma key and crops transparent margins."
+    },
+    {
+      "path": "image-assets/sources/icon-source.png",
+      "sha256": "0523b3d0aa0ab9c5664022e30cf1258eb7cc10153eebfd4d031144bf587e98ed",
+      "generatedAt": "2026-11-03T16:20:39Z",
+      "evidence": "Codex native ImageGen output for the text-free Graph Lens icon. Web icon exports remove the chroma key."
+    },
+    {
+      "path": "public/brand/sources/social-source.png",
+      "sha256": "6d7300180c1041d39c36844faef45f02d0e14d8d23ae9ae34740b99835e0d36f",
+      "generatedAt": "2026-11-03T16:21:29Z",
+      "evidence": "Codex native ImageGen output for the Graph Lens Open Graph graphic."
+    }
+  ],
+  "exports": [
+    {
+      "role": "readme-logo",
+      "path": "logo.png",
+      "sha256": "8dafef5b85e2d9e594d4f3e95aa0ae12b8ed429a11ad816c5c04d8938a9cdd02",
+      "source": "image-assets/sources/logo-source.png"
+    },
+    {
+      "role": "favicon",
+      "path": "public/brand/web-seo/favicon/favicon.ico",
+      "sha256": "339269de063eb5b0dc563bb35b599a2ca156400f466bc7dc7e173cff4f010345",
+      "source": "image-assets/sources/icon-source.png"
+    },
+    {
+      "role": "social-preview",
+      "path": "public/brand/web-seo/og-image-1200x630.png",
+      "sha256": "140f998ed0ab1b2b4132c085d0eff7654854e76b317b3e8b77f4f39fe1069356",
+      "source": "public/brand/sources/social-source.png"
+    }
+  ]
+}

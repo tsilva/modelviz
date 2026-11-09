@@ -8,3 +8,5 @@ dist/
 
 # Python secret-management helpers
 __pycache__/
+/INBOX.md
+/.local/repo-inbox/

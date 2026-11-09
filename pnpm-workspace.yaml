@@ -7,6 +7,15 @@ blockExoticSubdeps: true
 # Exact security-patch exception approved for the source-map-js advisory.
 minimumReleaseAgeExclude:
   - source-map-js@1.2.2
+  # Exact October 27 security releases reviewed and conditionally approved.
+  - glob@14.0.2
+  - minimatch@11.0.1
+  - path-scurry@3.0.0
+  - '@isaacs/nonrecursive-glob-match@1.0.1'
 
 overrides:
   source-map-js: 1.2.2
+  '@sentry/bundler-plugins@10.69.0>glob': 14.0.2
+  'glob@14.0.2>minimatch': 11.0.1
+  'glob@14.0.2>path-scurry': 3.0.0
+  'minimatch@11.0.1>@isaacs/nonrecursive-glob-match': 1.0.1

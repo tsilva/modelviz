@@ -58,19 +58,19 @@ export default defineConfig(({ command, mode }) => {
   const releaseName = env.SENTRY_RELEASE || env.VITE_SENTRY_RELEASE || getGitSha();
   const sentryOrg = env.SENTRY_ORG || "tsilva";
   const sentryProject = env.SENTRY_PROJECT || "modelviz";
-  const hasSentryUploadConfig = Boolean(env.SENTRY_AUTH_TOKEN);
+  const isHostedBuild = process.env.VERCEL === "1" && Boolean(process.env.VERCEL_DEPLOYMENT_ID);
+  const uploadSourceMaps = command === "build" && isHostedBuild && Boolean(env.SENTRY_AUTH_TOKEN);
 
   return {
     define: {
       "import.meta.env.VITE_SENTRY_RELEASE": JSON.stringify(releaseName)
     },
     build: {
-      sourcemap: command === "build" && hasSentryUploadConfig ? "hidden" : false
+      sourcemap: uploadSourceMaps ? "hidden" : false
     },
     plugins: [
       localModelEndpoint(),
-      command === "build" &&
-        hasSentryUploadConfig &&
+      uploadSourceMaps &&
         sentryVitePlugin({
           authToken: env.SENTRY_AUTH_TOKEN,
           org: sentryOrg,

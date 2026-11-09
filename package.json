@@ -6,13 +6,11 @@
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "dev": "python3 scripts/infisical/run.py dev",
-    "build": "vite build",
+    "build": "vite build && node scripts/prerender.mjs",
     "preview": "node scripts/dev-server.mjs vite preview --host 127.0.0.1",
     "test": "node --test scripts/*.test.mjs",
     "dev:app": "node scripts/dev-server.mjs vite --host 127.0.0.1",
-    "build:secrets": "python3 scripts/infisical/run.py build",
     "secrets:check": "python3 scripts/infisical/run.py check",
-    "secrets:migrate:keyenv": "python3 scripts/infisical/migrate_keyenv.py",
     "test:secrets": "python3 -m unittest discover -s scripts/infisical -p test_secrets.py",
     "secrets:sync:production": "python3 scripts/infisical/sync_production.py"
   },
@@ -22,7 +20,7 @@
     "lucide-react": "0.468.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "vite": "8.3.1"
+    "vite": "8.3.3"
   },
   "devDependencies": {
     "@babel/core": "7.29.7",

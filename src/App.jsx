@@ -2,25 +2,27 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CircuitBoard, DownloadCloud, ExternalLink, FileUp, Globe2, Search, ShieldCheck, X } from "lucide-react";
 import MappingWorkspace from "./components/MappingWorkspace.jsx";
 import { createEmptyModelView, createModelViewFromOnnx } from "./lib/modelView.js";
-import { parseOnnxModel } from "./lib/onnxParser.js";
 import { DEFAULT_MODEL } from "./lib/defaultModel.js";
 import { assessRemoteModelFit, createRemoteModelFromUrl, formatBytes, getBrowserFitContext, searchWebOnnxModels } from "./lib/webModelBrowser.js";
 const initialLoadProgress = remoteModel => ({
   state: "loading",
   title: `Loading ${remoteModel.name}`,
-  detail: remoteModel.artifactPath,
+  detail: remoteModel.graphUrl ? "Model graph metadata" : remoteModel.artifactPath,
   loadedBytes: 0,
-  totalBytes: remoteModel.sizeBytes ?? remoteModel.estimatedBytes ?? null
+  totalBytes: remoteModel.graphSizeBytes ?? remoteModel.sizeBytes ?? remoteModel.estimatedBytes ?? null
 });
-function App() {
+function App({ initialModelView } = {}) {
   const [query, setQuery] = useState("");
-  const [modelView, setModelView] = useState(() => createEmptyModelView());
+  const [modelView, setModelView] = useState(() => initialModelView ?? createEmptyModelView());
   const [modelRevision, setModelRevision] = useState(0);
-  const [loadStatus, setLoadStatus] = useState({
+  const [loadStatus, setLoadStatus] = useState(initialModelView ? {
+    state: "ready",
+    message: initialModelView.loadMessage
+  } : {
     state: "loading",
     message: "Loading DistilGPT2"
   });
-  const [loadProgress, setLoadProgress] = useState(() => initialLoadProgress(DEFAULT_MODEL));
+  const [loadProgress, setLoadProgress] = useState(() => initialModelView ? null : initialLoadProgress(DEFAULT_MODEL));
   const [webQuery, setWebQuery] = useState("distilgpt2");
   const [webResults, setWebResults] = useState([]);
   const [webStatus, setWebStatus] = useState({
@@ -60,14 +62,22 @@ function App() {
   const openFile = async event => {
     const [file] = event.target.files ?? [];
     if (!file) return;
+    event.target.value = "";
     modelLoadAbortRef.current?.abort();
+    const controller = new AbortController();
+    modelLoadAbortRef.current = controller;
     setLoadProgress(null);
     setLoadStatus({
       state: "loading",
       message: `Loading ${file.name}`
     });
     try {
-      const parsed = parseOnnxModel(await file.arrayBuffer());
+      const [buffer, { parseOnnxModel }] = await Promise.all([
+        file.arrayBuffer(),
+        import("./lib/onnxParser.js")
+      ]);
+      if (controller.signal.aborted) return;
+      const parsed = parseOnnxModel(buffer);
       const nextView = createModelViewFromOnnx(file.name, parsed);
       setModelView(nextView);
       setModelRevision(value => value + 1);
@@ -77,21 +87,21 @@ function App() {
         message: nextView.loadMessage
       });
     } catch (error) {
+      if (controller.signal.aborted) return;
       setLoadStatus({
         state: "error",
         message: error.message
       });
     } finally {
-      event.target.value = "";
+      if (modelLoadAbortRef.current === controller) modelLoadAbortRef.current = null;
     }
   };
-  const loadModelBuffer = async ({
+  const loadModelGraph = ({
     fileName,
     sourcePath,
-    buffer
+    graph
   }) => {
-    const parsed = parseOnnxModel(buffer);
-    const nextView = createModelViewFromOnnx(fileName, parsed, sourcePath);
+    const nextView = createModelViewFromOnnx(fileName, graph, sourcePath);
     setModelView(nextView);
     setModelRevision(value => value + 1);
     setQuery("");
@@ -150,13 +160,16 @@ function App() {
     setModelBrowserOpen(false);
     setLoadStatus({
       state: "loading",
-      message: `Downloading ${remoteModel.artifactPath}`
+      message: remoteModel.graphUrl ? `Loading ${remoteModel.name}` : `Downloading ${remoteModel.artifactPath}`
     });
     setLoadProgress(initialLoadProgress(remoteModel));
     try {
-      const response = await fetch(remoteModel.downloadUrl, { signal: controller.signal });
+      const [response, onnxParser] = await Promise.all([
+        fetch(remoteModel.graphUrl ?? remoteModel.downloadUrl, { signal: controller.signal }),
+        remoteModel.graphUrl ? null : import("./lib/onnxParser.js")
+      ]);
       if (!response.ok) throw new Error(`Remote model download failed (${response.status})`);
-      const totalBytes = readContentLength(response) ?? remoteModel.sizeBytes ?? remoteModel.estimatedBytes ?? null;
+      const totalBytes = remoteModel.graphSizeBytes ?? readContentLength(response) ?? remoteModel.sizeBytes ?? remoteModel.estimatedBytes ?? null;
       const buffer = await readResponseBuffer(response, {
         totalBytes,
         onProgress: loadedBytes => {
@@ -164,7 +177,7 @@ function App() {
           setLoadProgress({
             state: "loading",
             title: `Loading ${remoteModel.name}`,
-            detail: remoteModel.artifactPath,
+            detail: remoteModel.graphUrl ? "Model graph metadata" : remoteModel.artifactPath,
             loadedBytes,
             totalBytes
           });
@@ -178,10 +191,10 @@ function App() {
         loadedBytes: totalBytes ?? buffer.byteLength,
         totalBytes: totalBytes ?? buffer.byteLength
       });
-      await loadModelBuffer({
+      loadModelGraph({
         fileName: remoteModel.fileName || remoteModel.artifactPath.split("/").pop() || remoteModel.name || "model.onnx",
         sourcePath: remoteModel.downloadUrl,
-        buffer
+        graph: onnxParser ? onnxParser.parseOnnxModel(buffer) : JSON.parse(new TextDecoder().decode(buffer))
       });
       if (remoteModel !== DEFAULT_MODEL) setWebStatus({
         state: "ready",
@@ -206,6 +219,7 @@ function App() {
         totalBytes: null
       });
     } finally {
+      controller.abort();
       if (modelLoadAbortRef.current === controller) modelLoadAbortRef.current = null;
     }
   };
@@ -215,13 +229,13 @@ function App() {
     setLoadStatus({ state: hasModel ? "ready" : "idle", message: hasModel ? modelView.loadMessage : "Open an ONNX model or reload the example" });
   };
   useEffect(() => {
-    loadRemoteModel(DEFAULT_MODEL);
+    if (!initialModelView) loadRemoteModel(DEFAULT_MODEL);
     return () => modelLoadAbortRef.current?.abort();
   }, []);
   return <main className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <img className="modelviz-icon" src="/brand/icon/icon-1024.png" alt="" />
+          <img className="modelviz-icon" src="/brand/modelviz-header-96.png" width="34" height="34" alt="" />
           <div>
             <strong>ModelViz</strong>
             <span>ONNX architecture explorer</span>
