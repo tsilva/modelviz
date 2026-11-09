@@ -30,9 +30,9 @@ function tuple(value) {
 }
 
 test("patched dependency floors are installed", () => {
-  assert.deepEqual(tuple(installedVersion("@babel/core")), [7, 29, 7]);
+  assert.deepEqual(tuple(installedVersion("@babel/core")), [8, 1, 0]);
   assert.deepEqual(tuple(installedVersion("brace-expansion")), [5, 0, 12]);
-  assert.deepEqual(tuple(installedVersion("nanoid")), [3, 3, 18]);
+  assert.deepEqual(tuple(installedVersion("nanoid")), [6, 0, 2]);
   assert.deepEqual(tuple(installedVersion("postcss")), [8, 5, 32]);
 });
 
