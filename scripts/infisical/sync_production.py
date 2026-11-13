@@ -8,10 +8,9 @@ KEY = "SENTRY_AUTH_TOKEN"
 
 class Production(Infisical):
     def __init__(self):
-        super().__init__(ROOT)
+        self.root = ROOT
         self.project = PROJECT
-        if self.domain != "https://app.infisical.com":
-            raise SecretError("This production destination is pinned to the US cloud.")
+        self.domain = "https://app.infisical.com"
     def command(self, args, value=None):
         command = ["infisical", *args, "--projectId", self.project, "--domain", self.domain,
                    "--env", "prod", "--path", "/", "--silent", "--telemetry=false"]

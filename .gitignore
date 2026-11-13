@@ -10,3 +10,4 @@ dist/
 __pycache__/
 /INBOX.md
 /.local/repo-inbox/
+/.internal/
