@@ -75,7 +75,7 @@ jobs:
     with:
       project_id: prj_Sy4GGWi85T3HvrFY4f2I6NyQ1Bia
       project_name: modelviz
-      production_domains: '["modelviz.tsilva.eu","modelviz-sage.vercel.app"]'
+      production_domains: '["modelviz.tsilva.eu"]'
       public_environment: '["SENTRY_ORG","SENTRY_PROJECT","VITE_SENTRY_DSN"]'
       source_maps: true
       promote: ${{ !inputs.stage_prebuilt }}
