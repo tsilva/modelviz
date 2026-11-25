@@ -19,9 +19,6 @@ importers:
       '@sentry/react':
         specifier: 11.10.0
         version: 11.10.0(react@19.3.1)
-      '@vercel/analytics':
-        specifier: 2.0.1
-        version: 2.0.1(react@19.3.1)
       lucide-react:
         specifier: 1.69.0
         version: 1.69.0(react@19.3.1)
@@ -563,35 +560,6 @@ packages:
 
   '@types/jsesc@2.5.1':
     resolution: {integrity: sha512-9VN+6yxLOPLOav+7PwjZbxiID2bVaeq0ED4qSQmdQTdjnXJSaCVKTR58t15oqH1H5t8Ng2ZX1SabJVoN9Q34bw==}
-
-  '@vercel/analytics@2.0.1':
-    resolution: {integrity: sha512-MTQG6V9qQrt1tsDeF+2Uoo5aPjqbVPys1xvnIftXSJYG2SrwXRHnqEvVoYID7BTruDz4lCd2Z7rM1BdkUehk2g==}
-    peerDependencies:
-      '@remix-run/react': ^2
-      '@sveltejs/kit': ^1 || ^2
-      next: '>= 13'
-      nuxt: '>= 3'
-      react: ^18 || ^19 || ^19.0.0-rc
-      svelte: '>= 4'
-      vue: ^3
-      vue-router: ^4
-    peerDependenciesMeta:
-      '@remix-run/react':
-        optional: true
-      '@sveltejs/kit':
-        optional: true
-      next:
-        optional: true
-      nuxt:
-        optional: true
-      react:
-        optional: true
-      svelte:
-        optional: true
-      vue:
-        optional: true
-      vue-router:
-        optional: true
 
   balanced-match@4.0.4:
     resolution: {integrity: sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA==}
@@ -1266,10 +1234,6 @@ snapshots:
   '@types/gensync@1.0.5': {}
 
   '@types/jsesc@2.5.1': {}
-
-  '@vercel/analytics@2.0.1(react@19.3.1)':
-    optionalDependencies:
-      react: 19.3.1
 
   balanced-match@4.0.4: {}
 

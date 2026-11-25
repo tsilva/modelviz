@@ -1,6 +1,5 @@
 import React from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
-import { Analytics } from "@vercel/analytics/react";
 import App from "./App.jsx";
 import { initAnalytics } from "./lib/analytics.js";
 import { createDefaultModelView } from "./lib/defaultModel.js";
@@ -26,7 +25,6 @@ const app = (
   <React.StrictMode>
     <SentryErrorBoundary fallback={<div className="app-fallback">Something went wrong.</div>}>
       <App initialModelView={initialModelView} />
-      <Analytics />
     </SentryErrorBoundary>
   </React.StrictMode>
 );
